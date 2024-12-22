@@ -677,7 +677,7 @@ class Solution {
 **implemented by Stack and Set**
 In computer science, a topological sort or topological ordering of a directed graph is a linear ordering of its vertices such that for every directed edge uv from vertex u to vertex v, u comes before v in the ordering.
 
-**Topological Sor** is able to identify non-Cycle nodes of a graph.
+**Topological Sort** is able to identify non-Cycle nodes of a graph.
 
 ```java
     L ← Empty list that will contain the sorted elements
@@ -1182,9 +1182,6 @@ public class FordFulkerson {
 ```
 
 
-
-
-
 ### 4.15. Segement Tree, Binary index Trees
 
 Leet article:
@@ -1237,6 +1234,86 @@ public int queryTree(int treeIndex, int lo, int hi, int left, int right){
     int rightval = queryTree(treeIndex * 2 + 2, mid + 1, hi, left, right);
 
     return leftval + rightval;
+}
+
+```
+
+
+yet another example, the segment tree stores largest value in a range
+
+[2940. Find Building Where Alice and Bob Can Meet](https://leetcode.com/problems/find-building-where-alice-and-bob-can-mee)
+
+```java
+class SGTree(n : Int) {
+    val seg = IntArray(4 * n + 1)
+
+    fun build(idx : Int, low:Int, high: Int, arr:IntArray) {
+        if (low == high) {
+            seg[idx] = arr[low]
+            return
+        }
+
+        var mid = low + (high - low) / 2
+        build(2 * idx + 1, low, mid, arr)
+        build(2 * idx + 2, mid + 1, high, arr);
+        seg[idx] = max(seg[2 * idx + 1], seg[2 * idx + 2])
+    }
+
+    fun printArray() {
+        println(seg.contentToString())
+    }
+
+    fun query(idx : Int, low : Int, high: Int, l : Int, r : Int) : Int {
+        if (high < l || low > r) {
+            return -1
+        }
+
+        // complete overlap
+        if (low >= l && high <= r) {
+            return seg[idx]
+        }
+
+        val mid = low + (high - low) / 2
+        val left = query(2 * idx + 1, low, mid, l, r)
+        val right = query(2 * idx + 2, mid + 1, high, l, r)
+        return max(left, right)
+
+    }
+
+}
+
+// segment tree approach
+fun leftmostBuildingQueriesII(heights: IntArray, queries: Array<IntArray>): IntArray {
+    val q = queries.size
+    val n = heights.size
+    val segTree = SGTree(n)
+
+    segTree.build(0, 0, n - 1, heights)
+    val ans = IntArray(queries.size)
+    for ((i, query) in queries.withIndex()) {
+        val (a, b) = query
+        if (a == b || heights[max(a, b)] > heights[min(a, b)]){
+            ans[i] = max(a, b)
+            continue
+        }
+        val maxHeight = max(heights[a], heights[b])
+        var l = max(a, b) + 1
+        var r = n - 1
+        var curr = -1
+        while( l  <= r) {
+            val mid = (l + r) /2
+            val max = segTree.query(0, 0, n - 1, l, mid)
+            if (max > maxHeight) {
+                curr = mid
+                r = mid - 1
+            } else {
+                l = mid + 1
+            }
+        }
+        ans[i] = curr
+    }
+
+    return ans
 }
 
 ```
@@ -1304,3 +1381,5 @@ public int gcd(int x, int y){
     ((a * x + c) * (a * x + c)) % a
     = (c * c) % mod;
 ```
+
+

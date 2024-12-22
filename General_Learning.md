@@ -2,14 +2,14 @@
 
 - [1. The General Learning Notebook](#1-the-general-learning-notebook)
   - [1.1. Lesson Learnt for Interview Experiences](#11-lesson-learnt-for-interview-experiences)
-  - [1.2. Raod Map (In 24 months time, becaome expert level trading platform developer!!!)](#12-raod-map-in-24-months-time-becaome-expert-level-trading-platform-developer)
+  - [1.2. Raod Map](#12-raod-map)
   - [1.3. JAVA JVM](#13-java-jvm)
     - [1.3.1. JVM Memory Structure](#131-jvm-memory-structure)
     - [1.3.2. Java Memory Model](#132-java-memory-model)
   - [1.4. Possible cause of Memory Leak](#14-possible-cause-of-memory-leak)
   - [1.5. Class loading](#15-class-loading)
   - [1.6. Java Garbage Collections](#16-java-garbage-collections)
-    - [1.6.1. G!GC](#161-ggc)
+    - [1.6.1. G1GC](#161-g1gc)
     - [1.6.2. Enable GC logger](#162-enable-gc-logger)
     - [1.6.3. Reading GC Logs](#163-reading-gc-logs)
     - [1.6.4. Comparison of different GC techniques](#164-comparison-of-different-gc-techniques)
@@ -39,14 +39,14 @@
     - [1.12.6. How to gurantee thread safety for a Bean?](#1126-how-to-gurantee-thread-safety-for-a-bean)
     - [1.12.7. How does Spring solve Cycle Dependency between two Beans](#1127-how-does-spring-solve-cycle-dependency-between-two-beans)
     - [1.12.8. Autowire Need for Disambiguation](#1128-autowire-need-for-disambiguation)
-    - [Spring AOP](#spring-aop)
-    - [1.12.9. Spring Transactions Management](#1129-spring-transactions-management)
-    - [DB transaction isolation level](#db-transaction-isolation-level)
-    - [DB transaction lock](#db-transaction-lock)
-    - [1.12.10. Reactive Programming with Spring Webflux](#11210-reactive-programming-with-spring-webflux)
-    - [1.12.11. Docker with Spring Boot](#11211-docker-with-spring-boot)
-    - [How to design a 秒杀 系统](#how-to-design-a-秒杀-系统)
-    - [DB isolation level](#db-isolation-level)
+    - [1.12.9. Spring AOP](#1129-spring-aop)
+    - [1.12.10. Spring Transactions Management](#11210-spring-transactions-management)
+    - [1.12.11. DB transaction isolation level](#11211-db-transaction-isolation-level)
+    - [1.12.12. DB transaction lock](#11212-db-transaction-lock)
+    - [1.12.13. Reactive Programming with Spring Webflux](#11213-reactive-programming-with-spring-webflux)
+    - [1.12.14. Docker with Spring Boot](#11214-docker-with-spring-boot)
+    - [1.12.15. How to design a 秒杀 系统](#11215-how-to-design-a-秒杀-系统)
+    - [1.12.16. DB isolation level](#11216-db-isolation-level)
   - [1.13. Behaviour Interviews](#113-behaviour-interviews)
     - [1.13.1. Customer Obsession](#1131-customer-obsession)
   - [1.14. OS Interview Questions](#114-os-interview-questions)
@@ -102,6 +102,7 @@
 - [6. Kotlin](#6-kotlin)
   - [6.1. Kotlin Coroutine](#61-kotlin-coroutine)
   - [6.2. Kotlin + Spring Boot](#62-kotlin--spring-boot)
+  - [Jepack Compose](#jepack-compose)
 - [7. Kafka](#7-kafka)
 
 Page 23
@@ -115,7 +116,7 @@ Page 23
  5. Keep practicing / keep practicing
  6. If the role requires java, study java ; Otherwise pay attention to network / OS type of interview questions
 
-## 1.2. Raod Map (In 24 months time, becaome expert level trading platform developer!!!)
+## 1.2. Raod Map
 
 [Java Microservice RoadMap](https://github.com/in28minutes/roadmaps/blob/main/README.md#java-microservices-roadmap)
 [Java Fullstack](https://github.com/in28minutes/roadmaps/blob/main/README.md#java-full-stack-roadmap)
@@ -155,7 +156,12 @@ last resort
 
 - **Native Method Stack** : similar to stack area but for OS native methods
 - **PC register**: Stores the pointer to where the execution is.
+
 ### 1.3.2. Java Memory Model
+
+Lesson from Bilibili
+- JMM is in essence a model to support multithreading.
+- Defines how different threads stores and read variable from memory
 
 **Heap** actual objects
 **Stack** object reference, maethod stack frame, primitive type
@@ -188,7 +194,7 @@ to allow others to load up the rest of the system.
 set fixed size heap to avoid heap resizing; load memory pages into memory at the start of the application
 e.g. -Xms2g -Xmx2g -XX:+AlwaysPreTouch
 
-### 1.6.1. G!GC
+### 1.6.1. G1GC
 
 [G1GC tuning tips](https://blog.gceasy.io/2020/06/02/simple-effective-g1-gc-tuning-tips/)
 
@@ -367,7 +373,21 @@ cf.thenAccept(results::add); // also a great way to handle callback
 
 ### 1.7.9. Java Stream Parallel Processing 
 
-do prallel processing example
+- What if you need to pass context (often a threadlocal type) to different threads when doing parallel stream?
+  - use peek intermediate operation 
+
+```java
+// some logic ..
+var curThreadLocal = ContextUtil.getCurrentContext();
+var res = tasks.stream()
+      .parallel()
+      .peek(k -> ContextUtil.setCurrentContext())
+      .map(task -> task.call())
+      .collect(Collectors.toList());
+
+```
+
+- do prallel processing example
 
 ```java
 List<Integer> numbers = new ArrayList<>();
@@ -681,11 +701,11 @@ Prototyp - Singleton - Session - Request - Application - WebSocket
 use @Qualifier annotation
 use @Primary for default
 
-### Spring AOP
+### 1.12.9. Spring AOP
 
 **under the hood**
 
-### 1.12.9. Spring Transactions Management
+### 1.12.10. Spring Transactions Management
 
 Enabled by default in Spring Boot.
 When enabled we can use @Transactional to annotate a bean.
@@ -757,16 +777,16 @@ public class AccountService {
 - Method use final or static
 - Method is no public
 
-### DB transaction isolation level
+### 1.12.11. DB transaction isolation level
 乐观锁 悲观锁
 pessimistic lock, optimistic lock
 MVCC
 分布式锁
 
 
-### DB transaction lock
+### 1.12.12. DB transaction lock
 
-### 1.12.10. Reactive Programming with Spring Webflux
+### 1.12.13. Reactive Programming with Spring Webflux
 
 - Kotlin + Spring webflux could total replace Java + Spring Webflux making code much more readable
 - Kotlin + Spring Flux CRUD Important pointers
@@ -775,7 +795,7 @@ MVCC
   - Mono -> {entity}? Access entity directly
   - Kotlin Syntax Sugar: .let{// non-null scope}, .run{ any scope}
 
-### 1.12.11. Docker with Spring Boot
+### 1.12.14. Docker with Spring Boot
 
 - Build with gradlew:
 ```shell
@@ -810,11 +830,11 @@ docker run -p 8082:8080 -e DB_HOST=192.168.0.233 webflux-2-backend
 
 https://hantsy.github.io/spring-reactive-sample/data/data-r2dbc.html 
 
-### How to design a 秒杀 系统
+### 1.12.15. How to design a 秒杀 系统
 how do you make sure whatever you have in DB is in-sync with your cache
 
 
-### DB isolation level
+### 1.12.16. DB isolation level
 
 ## 1.13. Behaviour Interviews
 
@@ -1514,6 +1534,13 @@ The dispatcher, when have free thread, will call resumeWith of the continuation 
     - https://codersee.com/spring-boot-3-spring-security-6-with-kotlin-jwt/
   - WebSocket with Kotlin and Spring Webflux
     - https://spring.io/guides/tutorials/spring-webflux-kotlin-rsocket
+
+## Jepack Compose
+- Under the hood
+  - Gap Buffer to store UI class
+  - Positional Memoization
+  - https://medium.com/androiddevelopers/under-the-hood-of-jetpack-compose-part-2-of-2-37b2c20c6cdd 
+  - 数据驱动UI: like Flutter 
 
 # 7. Kafka
 
