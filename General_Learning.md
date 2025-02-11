@@ -47,6 +47,7 @@
     - [1.12.14. Docker with Spring Boot](#11214-docker-with-spring-boot)
     - [1.12.15. How to design a 秒杀 系统](#11215-how-to-design-a-秒杀-系统)
     - [1.12.16. DB isolation level](#11216-db-isolation-level)
+    - [Spring AI integration with Tensorflow](#spring-ai-integration-with-tensorflow)
   - [1.13. Behaviour Interviews](#113-behaviour-interviews)
     - [1.13.1. Customer Obsession](#1131-customer-obsession)
   - [1.14. OS Interview Questions](#114-os-interview-questions)
@@ -104,6 +105,7 @@
   - [6.2. Kotlin + Spring Boot](#62-kotlin--spring-boot)
   - [Jepack Compose](#jepack-compose)
 - [7. Kafka](#7-kafka)
+- [PluralSight Java Clean code practices](#pluralsight-java-clean-code-practices)
 
 Page 23
 
@@ -831,10 +833,14 @@ docker run -p 8082:8080 -e DB_HOST=192.168.0.233 webflux-2-backend
 https://hantsy.github.io/spring-reactive-sample/data/data-r2dbc.html 
 
 ### 1.12.15. How to design a 秒杀 系统
-how do you make sure whatever you have in DB is in-sync with your cache
+async Kafka + redis
 
 
 ### 1.12.16. DB isolation level
+
+
+### Spring AI integration with Tensorflow
+https://medium.com/@AlexanderObregon/how-to-improve-spring-boot-applications-with-artificial-intelligence-and-machine-learning-f847bd57a40e
 
 ## 1.13. Behaviour Interviews
 
@@ -1545,3 +1551,65 @@ The dispatcher, when have free thread, will call resumeWith of the continuation 
 # 7. Kafka
 
 In summary, the keystore is used by servers to store their private keys and certificates, while the truststore is used by clients to store certificates of trusted servers or CAs. They both play crucial roles in establishing secure communication channels over SSL/TLS.
+
+# PluralSight Java Clean code practices
+**Wrong Quesitons**
+1. Which stream method receives a predicate written as a lambda expression? 
+   a. **allMatch()**
+   b. findAny() 
+   c. reduce()
+   d. max()
+
+2. What does the dependency inversion SOLID design principle mean? 
+   a. Abstractions should depend on details.
+   b.**The high-level and low-level modules should depend on abstractions.**
+   c. A container should inject dependencies.
+   d. The high-level modules should depend on the low-level modules.
+
+3. What happens when you call shutdownNow() on a ThreadPoolExecutor?
+   a. The shutdownNow() method puts the ThreadPoolExecutor in the shutdown state, which means that it will not accept new tasks, and then it waits until all currently executing tasks have finished before returning.
+   b. The shutdownNow() method only puts the ThreadPoolExecutor in the shutdown state, which means that it will not accept new tasks, but currently executing tasks will continue to run.
+   c. **The shutdownNow() method attempts to stop all currently executing tasks, but it does not wait for the tasks and threads to be stopped.**
+   d. The shutdownNow() method forces all threads to stop and doesn't return until all threads in the pool have stopped.
+
+4. What is an example of an unchecked exception? 
+   a. ClassNotFoundException
+   b. IOException
+   c. **NumberFormatException**
+   d. FileNotFoundException
+
+5. What will happen if you use the following classes in a program?
+```java
+public class Person {
+    private String name;
+
+    public Person(String name) {
+        this.name = name;
+    }
+}
+
+
+class Employee extends Person {
+    private String department;
+
+    public Employee(String department) {
+        this.department = department;
+    }
+}
+```
+a. It compiles without errors, but when you create an Employee object, the member variable name would be set to null.
+b. **Class Employee would not compile, because its constructor implicitly tries to use the no-arguments constructor of class Person and class Person does not have such a constructor.**
+c. Class Employee would not compile, because it is not a public class but its superclass Person is. A subclass cannot have a more restrictive access specifier than its superclass.
+d. It compiles without errors, but there would be no way to access the name and department member variables. You must add getter methods to get the values of the member variables.
+
+6. When would you declare an object through implementation rather than through an interface?
+   a. When the implementation contains a limited number of methods that can be used on the object 
+   b. When the implementation extends a class which in turn implements an interface
+   c. **When the implementation provides additional methods that must be called on the declared object**
+   d. When the implementation extends an abstract class which in turn implements an interface
+
+7. What would you use to implement the strategy pattern?
+   a. **One interface with concrete classes implementing the interface**
+   b. One single class which ensures that only one object is created
+   c. One class that implements multiple interfaces
+   d. Separate classes to control the application logic, visualizations, and data flow

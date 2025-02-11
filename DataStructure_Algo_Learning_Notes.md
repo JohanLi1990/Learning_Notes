@@ -414,7 +414,7 @@ private int LIS(int[] A) {
 ```
 
 #### 4.5.9. KMP Algorithms (Pattern search algorithm)
-
+[1910. Remove All Occurrences of a Substring](https://leetcode.com/problems/remove-all-occurrences-of-a-substring/submissions/1539418987/?envType=daily-question&envId=2025-02-11)
 ```java
 // for pattern array, find size of suffix which is same as prefix
 private int[] computeTemporaryArray(char[] pattern) {
