@@ -106,6 +106,7 @@
 - [7. Kafka](#7-kafka)
 - [8. PluralSight Java Clean code practices](#8-pluralsight-java-clean-code-practices)
 - [9. PluralSight Cloud Fundamental](#9-pluralsight-cloud-fundamental)
+- [10. PluralSight Core-Spring](#10-pluralsight-core-spring)
 
 Page 23
 
@@ -1864,13 +1865,13 @@ d. It compiles without errors, but there would be no way to access the name and 
   **Classify the data as restricted.**
 
 20. What allows you to locate servers close together, even on the same host, to minimize network latency?
-  Cluster placement groups
+  **Cluster placement groups**
 
   Incorrect -
   Network placement groups
 
   Your choice: incorrect -
-  **Hypervisor configuration rules**
+  Hypervisor configuration rules
 
   Incorrect -
   Virtual machine deployment configuration
@@ -1898,3 +1899,337 @@ d. It compiles without errors, but there would be no way to access the name and 
 
   Correct -
   **Ensure that the cloud provider you chose supports nested virtualization.**
+
+# 10. PluralSight Core-Spring
+
+4. How will you directly add attributes to the model for a view in a controller method?
+    Your choice: incorrect -
+    By annotating a method parameter with @ModelAttribute
+
+    Correct -
+    By annotating the method with @ModelAttribute
+
+    Incorrect -
+    By using the @PathVariable annotation on a method parameter
+
+    Incorrect -
+    By using the @RequestMapping annotation on the method
+
+5. While checking a Spring Cloud application code, you come across some lines that keep track of all the services the application uses along with their instances. How can you use such services in your application? 
+    Correct -
+    Through service discovery 
+
+    Incorrect -
+    Through dependency injection
+
+    Incorrect -
+    Through the @EnableEurekaServer annotation 
+
+    Your choice: incorrect -
+    Through @EnableDiscoveryClient annotation 
+
+6. If you want to set a property on the mock property source for the current environment, which method would you use?
+    Incorrect -
+    Environment's setActiveProfiles(String... profiles) method
+
+    Incorrect -
+    MockPropertySource's addPropertySource(String name, Object value) method
+
+    Correct -
+    MockEnvironment's withProperty(String key, String value) method
+
+    Your choice: incorrect -
+    MockEnvironment's addProperty(String key, String value) method
+7. The Spring Framework provides built-in support for mocking which object when writing unit tests?
+    Correct -
+    Environment
+
+    Incorrect -
+    Resource
+
+    Your choice: incorrect -
+    BeanFactory
+
+    Incorrect -
+    JdbcTemplate
+8. Which feature only exists in Spring Boot?
+    Correct -
+    Type-safe configuration properties
+
+    Incorrect -
+    @Conditional bean creation
+
+    Your choice: incorrect -
+    Support for YAML
+
+    Incorrect -
+    Reactive programming model
+9. What are the two components typically configured when setting up Lightweight Directory Access Protocol (LDAP) authentication in Spring Security?
+    Incorrect -
+    AccessDecisionManager and AuthenticationProvider
+
+    Your choice: incorrect -
+    UserService and JdbcDaoImpl
+
+    Correct -
+    BindAuthenticator and LdapAuthoritiesPopulator
+
+    Incorrect -
+    LdapAuthenticator and DaoPopulator
+
+13. Which Java specification provides built-in mocks for unit testing in the Spring Framework?
+    Your choice: incorrect -
+    The Enterprise JavaBeans (EJB) specification
+
+    Correct -
+    The Servlet specification
+
+    Incorrect -
+    The Java Data Objects (JDO) specification
+
+    Incorrect -
+    The Java Persistence API (JPA) specification
+
+15. How would you retrieve data using the WebClient class from an endpoint at URL http://localhost:2020 in the simplest way?
+    Incorrect -
+    ```java
+    public class StudentClient {
+      WebClient sclient = WebClient.create().get().uri("http://localhost:2020");
+    }
+    ```
+    Correct -
+    ```java
+    public class StudentClient {
+    WebClient sclient = WebClient.create("http://localhost:2020");
+    // ...
+    }
+    ```
+    Incorrect -
+    ```java
+    public class StudentClient {
+    WebClient sclient = WebClient("http://localhost:2020");
+    // ...
+    }
+    ```
+    Your choice: incorrect -
+    ```java
+    public class StudentClient {
+      WebClient sclient = WebClient.builder().baseUrl("http://localhost:2020").build();
+    }
+    ```
+16. Which annotations would you apply to your code to have more control of the dependency injection process? 
+    Incorrect -
+    @Qualifier and @Component
+
+    Your choice: incorrect -
+    @Autowired, @Component, and @Qualifier
+
+    Incorrect -
+    @Component and @Configuration
+
+    Correct -
+    @Autowired and @Qualifier
+
+17. Your Spring Boot application defines a configuration value as an environment variable:
+GREETING="never gonna give you up"
+What must you use to override this value, according to the PropertySource order that Spring Boot uses?
+    Incorrect -
+    An application.properties file packaged within your jar
+
+    Correct -
+    A command-line argument when executing the jar
+
+    Incorrect -
+    An application.properties file in the same directory as your jar
+
+    Your choice: incorrect -
+    A @PropertySource annotation with your @Configuration class
+
+18. Which is a key difference between Spring aspect-oriented programming (AOP) and AspectJ AOP?
+    Incorrect -
+    AspectJ is slower and more powerful than Spring AOP.
+
+    Your choice: incorrect -
+    AspectJ is faster but less powerful than Spring AOP.
+
+    Incorrect -
+    AspectJ is slower and less powerful than Spring AOP.
+
+    Correct -
+    AspectJ is faster and more powerful than Spring AOP.
+19. You are setting up an API gateway for your Spring Cloud application using Netflix Zuul. Which annotation should you apply to enable the gateway functionality?
+    Incorrect -
+    @EnableZuulServer
+
+    Correct -
+    @EnableZuulProxy
+
+    Incorrect -
+    @EnableZuulApiGateway
+
+    Your choice: incorrect -
+    @EnableApiGateway
+
+20. Which class resolves uncaught exceptions using @ExceptionHandler methods? 
+    Your choice: incorrect -
+    DefaultHandlerExceptionResolver
+
+    Correct -
+    ExceptionHandlerExceptionResolver
+
+    Incorrect -
+    HandlerExceptionResolver
+
+    Incorrect -
+    ResponseStatusExceptionResolver
+
+second attempt:
+1. You must write unit tests using TestNG without treating your controller classes as plain old Java objects (POJO). Which package and class will be useful for you in this case? 
+    Incorrect -
+    The org.springframework.test package that contains the UtilTest class
+
+    Your choice: incorrect -
+    The org.springframework.test.mockandview.web package that contains the MockTest class
+
+    Correct -
+    The org.springframework.test.web package that contains the ModelAndViewAssert class
+
+    Incorrect -
+    The org.springframework.test.mock.web package that contains the ModelAndTest class
+
+2. The Authentication object has a method getAuthorities() that returns an array of GrantedAuthority objects. What are these authorities objects commonly called?
+    Incorrect -
+    Authentications
+
+    Incorrect -
+    Users
+
+    Your choice: incorrect -
+    AuthTokens
+
+    Correct -
+    Permissions
+
+3. While making an application you add some servlet filters into your code for filtering, encryption, and decryption. The following code snippet is from the web.xml file:
+    ```xml
+    4. <filter>
+    5.  <filter-name>myEdit</filter-name>
+    6.  <filter-class>org.springframework.web.filter</filter-class>
+    7. </filter>
+    ```
+While running the final application, the application ignores the filters and executes everything else. How can you fix this? 
+    Your choice: correct -
+    Add the org.springframework.web.filter.DelegatingFilterProxy filter class in the third line.
+
+    Incorrect -
+    Replace the second line with <name>myEdit</name>.
+
+    Incorrect -
+    Replace <filter-class> with <input> in the third line.
+
+    Incorrect -
+    Change the <filter> tag to the <filter-id> tag in the first line.
+
+1. What mechanism can you use when you want to add Basic Authentication to all requests using RestTemplate?
+    Incorrect -
+    template.addHeaders(HTTPHeaders.AUTHORIZATION, "Basic");
+    Correct -
+    restTemplateBuilder.basicAuthentication(username, password).build();
+    Incorrect -
+    template.setEncoder(new BasicAuthentication(username, password));
+    Your choice: incorrect -
+    restTemplateBuilder.addHeader(HTTPHeaders.AUTHORIZATION, "Basic");
+
+6. What would you add to the following code so it will also configure the location of files that the test uses?
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest(SpringBootTest.WebEnvironment.MOCK, classes=Application.class)
+@AutoConfigureMockMvc
+public class StudentIntegrationTest{
+ // ...
+}
+```
+    Your choice: correct -
+    @TestPropertySource(location="...")
+    Incorrect -
+    @Configuration(location="...")
+    Incorrect -
+    @SpringTest(location="...")
+    Incorrect -
+    @IntegrationTest(location="...")
+
+9. Which annotation is required to use Java Persistence API (JPA) repositories when working with Spring Data?
+    Correct -
+    @EnableJpaRepositories
+
+    Incorrect -
+    @EnableJavaPersistence
+
+    Incorrect -
+    @EnablePersistence
+
+    Your choice: incorrect -
+    @EnableSpringDataJpa
+
+10. Your manager shared a file with you that handles the exceptions thrown from one or more ControllerAdvice classes.
+```java
+11. @ControllerAdvice
+12. class GlobalControllerExceptionHandler {
+13. @ResponseStatus(HttpStatus.CONFLICT)
+14. @ExceptionHandler(DataIntegrityViolation.class)
+15. public void handleException() {
+16.  ....
+17. }
+18. }
+```
+    The above code produces an error on its execution. Why? 
+    Correct -
+    Instead of DataIntegrityViolation, it should be DataIntegrityViolationException on line 4. 
+
+    Incorrect -
+    @Controller is missing from the code:
+
+    @ResponseStatus(HttpStatus.CONFLICT)
+    @Controller
+    @ExceptionHandler(DataIntegrityViolation.class)
+    Your choice: incorrect -
+    @ExceptionHandler annotation should be used at the class level.
+
+    Incorrect -
+    Instead of HttpStatus, it should be HttpStatusCode on line 3. 
+
+13. Consider the following snippet of a test:
+```java
+@ContextConfiguration
+public class PersonTests {
+    @Test
+    public void exampleTest() {
+        ...
+    }
+}
+```
+In a Spring Boot application, which annotation can you use as an alternative to the @ContextConfiguration annotation?
+    Incorrect -
+    @RunWith(SpringBootTester.class)
+
+    Incorrect -
+    @SpringBootTestApplication
+
+    Correct -
+    @SpringBootTest
+
+    Your choice: incorrect -
+    @RunWith(SpringBootTestRunner.class)
+
+18. Aspect-oriented programming (AOP) advice runs before, after, or around method executions matched by what?
+    Incorrect -
+    An aspect
+
+    Your choice: incorrect -
+    A joinpoint
+
+    Incorrect -
+    An expression
+
+    Correct -
+    A pointcut
