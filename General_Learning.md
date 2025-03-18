@@ -107,6 +107,9 @@
 - [8. PluralSight Java Clean code practices](#8-pluralsight-java-clean-code-practices)
 - [9. PluralSight Cloud Fundamental](#9-pluralsight-cloud-fundamental)
 - [10. PluralSight Core-Spring](#10-pluralsight-core-spring)
+- [PluralSight Python](#pluralsight-python)
+- [Output](#output)
+- [\[85, 46, 29, 73, 9\]](#85-46-29-73-9)
 
 Page 23
 
@@ -1902,12 +1905,11 @@ d. It compiles without errors, but there would be no way to access the name and 
 
 # 10. PluralSight Core-Spring
 
-4. How will you directly add attributes to the model for a view in a controller method?
+1. How will you directly add attributes to the model for a view in a controller method?
     Your choice: incorrect -
     By annotating a method parameter with @ModelAttribute
 
-    Correct -
-    By annotating the method with @ModelAttribute
+    **By annotating the method with @ModelAttribute**
 
     Incorrect -
     By using the @PathVariable annotation on a method parameter
@@ -1915,9 +1917,9 @@ d. It compiles without errors, but there would be no way to access the name and 
     Incorrect -
     By using the @RequestMapping annotation on the method
 
-5. While checking a Spring Cloud application code, you come across some lines that keep track of all the services the application uses along with their instances. How can you use such services in your application? 
+2. While checking a Spring Cloud application code, you come across some lines that keep track of all the services the application uses along with their instances. How can you use such services in your application? 
     Correct -
-    Through service discovery 
+    **Through service discovery**
 
     Incorrect -
     Through dependency injection
@@ -1928,7 +1930,7 @@ d. It compiles without errors, but there would be no way to access the name and 
     Your choice: incorrect -
     Through @EnableDiscoveryClient annotation 
 
-6. If you want to set a property on the mock property source for the current environment, which method would you use?
+3. If you want to set a property on the mock property source for the current environment, which method would you use?
     Incorrect -
     Environment's setActiveProfiles(String... profiles) method
 
@@ -1936,61 +1938,52 @@ d. It compiles without errors, but there would be no way to access the name and 
     MockPropertySource's addPropertySource(String name, Object value) method
 
     Correct -
-    MockEnvironment's withProperty(String key, String value) method
+   **MockEnvironment's withProperty(String key, String value) method**
 
     Your choice: incorrect -
     MockEnvironment's addProperty(String key, String value) method
-7. The Spring Framework provides built-in support for mocking which object when writing unit tests?
-    Correct -
-    Environment
 
-    Incorrect -
+4. The Spring Framework provides built-in support for mocking which object when writing unit tests?
+   
+    **Environment**
+
     Resource
 
-    Your choice: incorrect -
     BeanFactory
 
-    Incorrect -
     JdbcTemplate
-8. Which feature only exists in Spring Boot?
-    Correct -
-    Type-safe configuration properties
 
-    Incorrect -
+5. Which feature only exists in Spring Boot?
+   
+    **Type-safe configuration properties**
+
     @Conditional bean creation
 
-    Your choice: incorrect -
     Support for YAML
 
-    Incorrect -
     Reactive programming model
-9. What are the two components typically configured when setting up Lightweight Directory Access Protocol (LDAP) authentication in Spring Security?
-    Incorrect -
+
+6.  What are the two components typically configured when setting up Lightweight Directory Access Protocol (LDAP) authentication in Spring Security?
+
     AccessDecisionManager and AuthenticationProvider
 
-    Your choice: incorrect -
     UserService and JdbcDaoImpl
 
-    Correct -
-    BindAuthenticator and LdapAuthoritiesPopulator
+    **BindAuthenticator and LdapAuthoritiesPopulator**
 
-    Incorrect -
     LdapAuthenticator and DaoPopulator
 
-13. Which Java specification provides built-in mocks for unit testing in the Spring Framework?
-    Your choice: incorrect -
+7. Which Java specification provides built-in mocks for unit testing in the Spring Framework?
+
     The Enterprise JavaBeans (EJB) specification
 
-    Correct -
-    The Servlet specification
+    **The Servlet specification**
 
-    Incorrect -
     The Java Data Objects (JDO) specification
 
-    Incorrect -
     The Java Persistence API (JPA) specification
 
-15. How would you retrieve data using the WebClient class from an endpoint at URL http://localhost:2020 in the simplest way?
+8. How would you retrieve data using the WebClient class from an endpoint at URL http://localhost:2020 in the simplest way?
     Incorrect -
     ```java
     public class StudentClient {
@@ -2017,27 +2010,25 @@ d. It compiles without errors, but there would be no way to access the name and 
       WebClient sclient = WebClient.builder().baseUrl("http://localhost:2020").build();
     }
     ```
-16. Which annotations would you apply to your code to have more control of the dependency injection process? 
-    Incorrect -
+9. Which annotations would you apply to your code to have more control of the dependency injection process? 
+
     @Qualifier and @Component
 
-    Your choice: incorrect -
     @Autowired, @Component, and @Qualifier
 
-    Incorrect -
     @Component and @Configuration
 
-    Correct -
-    @Autowired and @Qualifier
+    **@Autowired and @Qualifier**
 
-17. Your Spring Boot application defines a configuration value as an environment variable:
+10. Your Spring Boot application defines a configuration value as an environment variable:
 GREETING="never gonna give you up"
 What must you use to override this value, according to the PropertySource order that Spring Boot uses?
+    
     Incorrect -
     An application.properties file packaged within your jar
 
-    Correct -
-    A command-line argument when executing the jar
+    Correct
+    **A command-line argument when executing the jar**
 
     Incorrect -
     An application.properties file in the same directory as your jar
@@ -2045,7 +2036,7 @@ What must you use to override this value, according to the PropertySource order 
     Your choice: incorrect -
     A @PropertySource annotation with your @Configuration class
 
-18. Which is a key difference between Spring aspect-oriented programming (AOP) and AspectJ AOP?
+11. Which is a key difference between Spring aspect-oriented programming (AOP) and AspectJ AOP?
     Incorrect -
     AspectJ is slower and more powerful than Spring AOP.
 
@@ -2056,13 +2047,14 @@ What must you use to override this value, according to the PropertySource order 
     AspectJ is slower and less powerful than Spring AOP.
 
     Correct -
-    AspectJ is faster and more powerful than Spring AOP.
-19. You are setting up an API gateway for your Spring Cloud application using Netflix Zuul. Which annotation should you apply to enable the gateway functionality?
+    **AspectJ is faster and more powerful than Spring AOP.**
+
+12.  You are setting up an API gateway for your Spring Cloud application using Netflix Zuul. Which annotation should you apply to enable the gateway functionality?
     Incorrect -
     @EnableZuulServer
 
     Correct -
-    @EnableZuulProxy
+    **@EnableZuulProxy**
 
     Incorrect -
     @EnableZuulApiGateway
@@ -2070,12 +2062,12 @@ What must you use to override this value, according to the PropertySource order 
     Your choice: incorrect -
     @EnableApiGateway
 
-20. Which class resolves uncaught exceptions using @ExceptionHandler methods? 
+13.  Which class resolves uncaught exceptions using @ExceptionHandler methods? 
     Your choice: incorrect -
     DefaultHandlerExceptionResolver
 
     Correct -
-    ExceptionHandlerExceptionResolver
+    **ExceptionHandlerExceptionResolver**
 
     Incorrect -
     HandlerExceptionResolver
@@ -2084,7 +2076,7 @@ What must you use to override this value, according to the PropertySource order 
     ResponseStatusExceptionResolver
 
 second attempt:
-1. You must write unit tests using TestNG without treating your controller classes as plain old Java objects (POJO). Which package and class will be useful for you in this case? 
+14. You must write unit tests using TestNG without treating your controller classes as plain old Java objects (POJO). Which package and class will be useful for you in this case? 
     Incorrect -
     The org.springframework.test package that contains the UtilTest class
 
@@ -2092,12 +2084,12 @@ second attempt:
     The org.springframework.test.mockandview.web package that contains the MockTest class
 
     Correct -
-    The org.springframework.test.web package that contains the ModelAndViewAssert class
+    **The org.springframework.test.web package that contains the ModelAndViewAssert class**
 
     Incorrect -
     The org.springframework.test.mock.web package that contains the ModelAndTest class
 
-2. The Authentication object has a method getAuthorities() that returns an array of GrantedAuthority objects. What are these authorities objects commonly called?
+15. The Authentication object has a method getAuthorities() that returns an array of GrantedAuthority objects. What are these authorities objects commonly called?
     Incorrect -
     Authentications
 
@@ -2108,18 +2100,18 @@ second attempt:
     AuthTokens
 
     Correct -
-    Permissions
+    **Permissions**
 
-3. While making an application you add some servlet filters into your code for filtering, encryption, and decryption. The following code snippet is from the web.xml file:
+16. While making an application you add some servlet filters into your code for filtering, encryption, and decryption. The following code snippet is from the web.xml file:
     ```xml
-    4. <filter>
-    5.  <filter-name>myEdit</filter-name>
-    6.  <filter-class>org.springframework.web.filter</filter-class>
-    7. </filter>
+    1. <filter>
+    2.  <filter-name>myEdit</filter-name>
+    3.  <filter-class>org.springframework.web.filter</filter-class>
+    4. </filter>
     ```
 While running the final application, the application ignores the filters and executes everything else. How can you fix this? 
     Your choice: correct -
-    Add the org.springframework.web.filter.DelegatingFilterProxy filter class in the third line.
+    **Add the org.springframework.web.filter.DelegatingFilterProxy filter class in the third line.**
 
     Incorrect -
     Replace the second line with <name>myEdit</name>.
@@ -2130,17 +2122,20 @@ While running the final application, the application ignores the filters and exe
     Incorrect -
     Change the <filter> tag to the <filter-id> tag in the first line.
 
-1. What mechanism can you use when you want to add Basic Authentication to all requests using RestTemplate?
+17. What mechanism can you use when you want to add Basic Authentication to all requests using RestTemplate?
     Incorrect -
     template.addHeaders(HTTPHeaders.AUTHORIZATION, "Basic");
+    
     Correct -
-    restTemplateBuilder.basicAuthentication(username, password).build();
+    **restTemplateBuilder.basicAuthentication(username, password).build();**
+
     Incorrect -
     template.setEncoder(new BasicAuthentication(username, password));
+    
     Your choice: incorrect -
     restTemplateBuilder.addHeader(HTTPHeaders.AUTHORIZATION, "Basic");
 
-6. What would you add to the following code so it will also configure the location of files that the test uses?
+18. What would you add to the following code so it will also configure the location of files that the test uses?
 ```java
 @RunWith(SpringRunner.class)
 @SpringBootTest(SpringBootTest.WebEnvironment.MOCK, classes=Application.class)
@@ -2150,17 +2145,20 @@ public class StudentIntegrationTest{
 }
 ```
     Your choice: correct -
-    @TestPropertySource(location="...")
+   **@TestPropertySource(location="...")**
+    
     Incorrect -
     @Configuration(location="...")
+    
     Incorrect -
     @SpringTest(location="...")
+    
     Incorrect -
     @IntegrationTest(location="...")
 
-9. Which annotation is required to use Java Persistence API (JPA) repositories when working with Spring Data?
+19. Which annotation is required to use Java Persistence API (JPA) repositories when working with Spring Data?
     Correct -
-    @EnableJpaRepositories
+    @**EnableJpaRepositories**
 
     Incorrect -
     @EnableJavaPersistence
@@ -2171,20 +2169,20 @@ public class StudentIntegrationTest{
     Your choice: incorrect -
     @EnableSpringDataJpa
 
-10. Your manager shared a file with you that handles the exceptions thrown from one or more ControllerAdvice classes.
+20. Your manager shared a file with you that handles the exceptions thrown from one or more ControllerAdvice classes.
 ```java
-11. @ControllerAdvice
-12. class GlobalControllerExceptionHandler {
-13. @ResponseStatus(HttpStatus.CONFLICT)
-14. @ExceptionHandler(DataIntegrityViolation.class)
-15. public void handleException() {
-16.  ....
-17. }
-18. }
+    1.  class GlobalControllerExceptionHandler {
+    2.  @ControllerAdvice
+    3.  @ResponseStatus(HttpStatus.CONFLICT)
+    4.  @ExceptionHandler(DataIntegrityViolation.class)
+    5.  public void handleException() {
+    6.   ....
+    7.  }
+    8.  }
 ```
     The above code produces an error on its execution. Why? 
     Correct -
-    Instead of DataIntegrityViolation, it should be DataIntegrityViolationException on line 4. 
+    **Instead of DataIntegrityViolation, it should be DataIntegrityViolationException on line 4.** 
 
     Incorrect -
     @Controller is missing from the code:
@@ -2198,16 +2196,16 @@ public class StudentIntegrationTest{
     Incorrect -
     Instead of HttpStatus, it should be HttpStatusCode on line 3. 
 
-13. Consider the following snippet of a test:
-```java
-@ContextConfiguration
-public class PersonTests {
-    @Test
-    public void exampleTest() {
-        ...
+21.  Consider the following snippet of a test:
+    ```java
+    @ContextConfiguration
+    public class PersonTests {
+        @Test
+        public void exampleTest() {
+            ...
+        }
     }
-}
-```
+    ```
 In a Spring Boot application, which annotation can you use as an alternative to the @ContextConfiguration annotation?
     Incorrect -
     @RunWith(SpringBootTester.class)
@@ -2216,12 +2214,12 @@ In a Spring Boot application, which annotation can you use as an alternative to 
     @SpringBootTestApplication
 
     Correct -
-    @SpringBootTest
+    **@SpringBootTest**
 
     Your choice: incorrect -
     @RunWith(SpringBootTestRunner.class)
 
-18. Aspect-oriented programming (AOP) advice runs before, after, or around method executions matched by what?
+22.  Aspect-oriented programming (AOP) advice runs before, after, or around method executions matched by what?
     Incorrect -
     An aspect
 
@@ -2232,4 +2230,553 @@ In a Spring Boot application, which annotation can you use as an alternative to 
     An expression
 
     Correct -
-    A pointcut
+    **A pointcut**
+23.  What's the difference between POST and PUT? 
+    The POST method uses the UPDATE query, whereas the PUT method uses the CREATE query.
+
+    Incorrect -
+    The POST method responses cannot be cached, whereas the PUT method responses can be cached.
+
+    Correct -
+    **The POST method allows the server to determine the new resource's Uniform Resource Identifier (URI), whereas the PUT method requires the client to specify it**.
+
+    Your choice: incorrect -
+    The POST method is idempotent, whereas the PUT method is not idempotent. 
+
+24.  How can you configure a Spring application?
+    As context, factory, or singleton
+
+    Your choice: incorrect -
+    As properties, YAML, or Gradle
+
+    Correct -
+    **As XML, Java, or annotations**
+
+    Incorrect -
+    As Java Database Connectivity (JDBC)
+25.  Which annotation of Spring model-view-controller (MVC) allows an application to run heavy-load jobs on a separate thread? 
+    @async because the Spring framework supports the asynchronous processing by default
+
+    Correct -
+    **@Async because the caller may or may not wait for the completion of the called method for execution**
+
+    Your choice: incorrect -
+    @Scheduled because it enables asynchronous processing with some configuration
+
+    Incorrect -
+    @async because you can apply it to private methods for fast execution
+
+26.  How can you achieve content negotiation? 
+    URL parameter and custom headers
+
+    URL extension, path location, and accept headers 
+
+    Path extension and custom headers
+
+   **Path extension, URL parameter, and accept headers**
+
+27.  When writing unit tests for Spring-based applications, what is the correct way of creating a plain old Java object (POJO)?
+    Using dependency injection
+
+    Using the factory pattern
+
+    **Using the new operator**
+
+    Using dependency injection with @Qualifier
+
+28.  What does the @SpringBootTest annotation do in the following code?
+
+    ```java
+    @RunWith(SpringRunner.class)
+    @SpringBootTest(SpringBootTest.WebEnvironment.MOCK, classes=Application.class)
+    @AutoConfigureMockMvc
+    @TestPropertySource(location="classpath:application-integrationtest.properties")
+    public class ProductIntegrationTest{
+    // ...
+    }
+
+    ```
+
+    Configures the location of the classes 
+
+    **Bootstraps the entire container**
+
+    Specifies the classes to be loaded
+
+    Configures the runtime environment 
+
+29.  Given the file config.properties, how would you correctly configure it using the @PropertySource annotation in the code below?
+    
+    ```java
+
+      @Configuration
+      public class PropertiesWithJavaConfig {   
+      @Bean   
+      public static PropertySourcesPlaceholderConfigurer 
+            propertySourcesPlaceholderConfigurer() {      
+        return new PropertySourcesPlaceholderConfigurer();   
+      }
+      }
+
+    ```
+    @PropertySource("config.properties") 
+
+    @PropertySource("value:config.properties") 
+
+    @PropertySource("path:config.properties") 
+
+    **@PropertySource("classpath:config.properties")**
+
+30.  You use the following code snippet in Spring Security:
+    
+    ```java
+    @Autowired
+    public void configAuthentication(AuthenticationManagerBuilder auth) throws Exception {
+    auth.jdbcAuthentication()
+    .dataSource(dataSource)
+    .usersByUsernameQuery("select username,email, enabled from users where username=?")
+    .authoritiesByUsernameQuery("select username, office from employee where username=?");
+    }
+    ```
+    How would you set up the authorization query?
+    
+    By throwing an exception 
+
+    Your choice: incorrect -
+    By using auth.jdbcAuthentication
+
+    Incorrect -
+    By using @Autowired
+
+    Correct -
+    **By using authoritiesByUsernameQuery** 
+
+31. What is the equivalent to MockMvc for Spring WebFlux endpoints?
+    
+    WebfluxTestTemplate
+
+    Your choice: incorrect -
+    MockWebFlux
+
+    Correct -**WebTestClient**
+
+    Incorrect -
+    TestWebfluxTemplate
+
+32. In a Spring Cloud application, what is the purpose of the bootstrap context? (dperecated, using Spirng Contfig Data)
+
+    It is responsible for initializing all dependent microservices.
+
+    Incorrect -
+    It is responsible for initializing beans with remote dependencies.
+
+    Your choice: incorrect -
+    It is responsible for loading service discovery configuration.
+
+    Correct -
+    **It is responsible for loading configuration from external sources.**
+
+33. You want to deal with the full application context file for managing your web security beans by adding a single entry to your web.xml. Your aim is to avoid cluttering the web.xml file. How would you do this?
+    
+    **Use the FilterChainProxy class.**
+
+    Incorrect -
+    Use the ChannelProcessingFilter class.
+
+    Your choice: incorrect -
+    Use the SecurityFilterChain class.
+
+    Incorrect -
+    Use the ConcurrentSessionFilter class.
+
+    **Remeber** Client -> FilterChain -> DelegatingFilterProxy (connects to Spring Bean) -> FilterChainProxy(Bean)  
+    -> SecurityFilterChain -> SecurityFilter (Bean, resgitered with FilterChainProxy)
+
+34. How would you start working with the @AspectJ annotation in your code? 
+    By annotating the @Configuration annotation 
+
+    Incorrect -
+    By annotating the @ComponentScan annotation 
+
+    Correct -
+    **By annotating the @EnableAspectJAutoProxy annotation** 
+
+    Your choice: incorrect -
+    By annotating the @EnableAspectJProxy annotation 
+
+35. What programming models does Spring WebFlux provide? 
+    HTTP requests and response content
+
+    Your choice: incorrect -
+    Mono and flux API types
+
+    Incorrect -
+    Annotated controllers and functional controllers 
+
+    Correct -
+    **Annotated controllers and functional endpoints** 
+
+36. The following code creates a custom health indicator:
+    ```java
+    @Component
+    public class MyHealthIndicator extends AbstractHealthIndicator {
+
+        @Override
+        protected void doHealthCheck(Health.Builder builder) throws Exception {
+    
+            builder.up()
+                    .withDetail("app", "Is alive!")
+                    .withDetail("error", "Something is wrong!");
+        }
+    }
+    ```
+    How would the /health endpoint show its details, provided that the management.endpoint.health.show-details property is set to a value of always?
+
+    InCorrect:
+    ```json
+    {
+      "status":"UP",
+      "details":{
+          "details":{
+            "status":"UP",
+            "custom":{
+                "app":"Is alive!",
+                "error":"Something is wrong!"
+            }
+          },
+        ...
+      }
+    }
+    ```
+
+    Incorrect:
+    ```json
+    {
+      "status":"UP",
+      "details":{
+          "custom":{
+            "status":"UP",
+            "up":{
+                "app":"Is alive!",
+                "error":"Something is wrong!"
+            }
+          },
+        ...
+      }
+    }
+
+    ```
+
+    InCorrect
+    ```json
+    {
+      "status":"UP",
+      "details":{
+          "custom":{
+            "details":{
+                "app":"Is alive!",
+                "error":"Something is wrong!"
+            }
+          },
+        ...
+      }
+    }
+    ```
+
+    correct
+    ```json
+    {
+      "status":"UP",
+      "details":{
+          "custom":{
+            "status":"UP",
+            "details":{
+                "app":"Is alive!",
+                "error":"Something is wrong!"
+            }
+          },
+        ...
+      }
+    }
+    ```
+
+
+
+# PluralSight Python
+
+1.  You are working on a Windows system and you must use the sys module to add a module from a custom location. The following script fails when you try to import the module. The custom location is: "D:\Projects\". Assume pydot is in the folder. Why is the script failing?
+```python
+import sys 
+sys.path.append("D:\Projects\")
+import pydot
+
+
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'pydot'
+
+```
+he module is not in that folder.
+
+Incorrect -
+You can only set the path in the PYTHONPATH environment variable.
+
+Your choice: incorrect -
+You must start with import statements and then with the append.
+
+Correct -
+**You must specify the path with raw string or escape the backslashes.**
+
+2.  What is the output of print(type(type))?
+correct - <class 'type'>
+
+Incorrect -
+<class 'str'>
+Incorrect -
+<class 'meta'>
+Incorrect -
+<class 'class'>
+
+3. What line of code would you use to shorten the number 109.4832 to 109?
+
+**math.trunc(109.4832)**
+
+Your choice: incorrect -
+math.round(109.4832, -2)
+
+Incorrect -
+math.floor((109.4832)2)
+
+Incorrect -
+math.ceil(109.4832, 2)
+
+4. How would you output the following?
+var = 'Let's get going'
+print(var)
+Incorrect -
+print('Let's get going)
+
+Your choice: incorrect -
+print('Let\\'s get going')
+
+Correct -
+var = 'Let\'s get going'
+print(var)
+
+5. You issue the following command, from math import square_root, and you get the ImportError: cannot import name 'square_root' from 'math' (unknown location). What is the problem?
+**The math module has no square_root function to be imported**
+
+Incorrect -
+It is a corrupted Python installation
+
+Incorrect -
+The math module is not installed
+
+Your choice: incorrect -
+The math as name for a module is invalid
+
+6. What is the output of the following code?
+
+```python
+try:
+    if 8 | True:
+        print('A', end='')
+except:
+    print('C')
+finally:
+    print('H')
+```
+
+AC
+H
+Incorrect -
+CH
+
+Correct -
+AH
+
+Incorrect -
+C
+H
+
+7. You create a Context Manager class to perform file handling as follows:
+```python
+class FileManager(): 
+    def __init__(self, filename, mode): 
+        self.filename = filename 
+        self.mode = mode 
+        self.file = None
+ 
+    def __enter__(self): 
+        self.file = open(self.filename, self.mode) 
+        return self.file
+```
+The class consists of operations such as opening a file and writing/reading contents. It misses a method to close the file, however. Which code can you use to close the file and provide necessary information in case of an exception?
+
+**def __exit__(self, exc_type, exc_value, exc_traceback):   
+    self.file.close() **
+    
+Incorrect -
+def __exit__(exc_type, exc_value, exc_traceback):   
+    file.close() 
+Your choice: incorrect -
+def __exit__(self):   
+    self.file.close() 
+Incorrect -
+def __exit__(self, exc_type, exc_value, exc_traceback):   
+    self.close() 
+
+8. You have two lists stored in variables First and Last. The length of the first list is five whereas the length of the second list is six. How can you add the first five elements from each list?
+First = [8, 5, 7, 8, 2]
+Last = [77, 41, 22, 65, 7, 5]
+
+# Output
+# [85, 46, 29, 73, 9]
+
+correct - [i + j for i, j in zip(First, Last)]
+Incorrect -
+[i = First[i] + j = Last[j] for i, j in map(First, Last)]
+Incorrect -
+concat(First[i], Last[j])
+Incorrect -
+[i + j for lambda(i,j) in concat(First, Last)]
+
+9. Consider the given class:
+class ListMetaclass(type):
+    def __new__(cls, name, bases, attrs):
+        attrs['add'] = lambda self, value: self.append(value)
+        return type.__new__(cls, name, bases, attrs)
+How can you create a CustomList class and add values User1 and User2 to the list?
+
+class CustomList(lst, metaclass=ListMetaclass):
+    lst = ['User1', 'User2']
+    pass
+
+lst = CustomList()
+lst.add('User1')
+lst.add('User2')
+Your choice: incorrect -
+class CustomList(metaclass=ListMetaclass):
+    pass
+
+lst = CustomList()
+lst.add('User1')
+lst.add('User2')
+Correct -
+class CustomList(list, metaclass=ListMetaclass):
+    pass
+
+lst = CustomList()
+lst.add('User1')
+lst.add('User2')
+Incorrect -
+class CustomList(lst, metaclass=ListMetaclass):
+    pass
+
+lst = CustomList()
+lst.add('User1')
+lst.add('User2')
+
+10. An object named p from a class named person contains attributes for first name and last name. What code option would change the attribute last_name of the class person to "User1"?
+
+setattr(p[last_name] == 'User1')
+
+Your choice: correct -
+setattr(p, 'last_name', 'User1')
+
+Incorrect -
+setattr(p.last_name =  'User1')
+
+Incorrect -
+setattr('p.last_name', 'User1')
+
+11. Which list method can remove a list's elements using their index?
+remove()
+
+Incorrect -
+index()
+
+Correct -
+pop()
+
+Incorrect -
+delete()
+
+12. In Python, when does the else statement of a for loop run? (*it can useful for searching stuff, if found do somethin, not found do others*)
+When the for loop encounters an error
+
+Correct -
+After the for loop completes all iterations
+
+Incorrect -
+Before each iteration of the for loop
+
+Incorrect -
+When the for loop breaks
+
+13. Using Python, how can you get the base-10 (Unicode) code point for a single str character?
+Use the Python original number function ori on the number within the unicode text.
+
+Your choice: incorrect -
+Use the Python specifier function spef on the number within the f-string value.
+
+Correct -
+Use the Python ord() function on the the actual object whose value will be formatted.
+
+Incorrect -
+Use the Python unicode function uni on the number whose value you would like formatted.
+
+14. What syntax in functions would you use to pass a varied number of non-keyword arguments?
+Correct
+*args
+
+Incorrect -
+pos
+
+Incorrect -
+**kwargs
+
+Your choice: incorrect -
+**args
+
+15. You must create an Iterator to iterate from values one to five and then stop. How can you do it using a generator expression?
+Incorrect
+[i for i in range(1,6)]
+
+Correct -
+(i for i in range(1,6))
+
+Incorrect -
+(i for i in range(5))
+
+Incorrect -
+{i for i in range(1,6)}
+
+16.  What is the output of the code print(hash('decode'))?
+Incorrect
+An integer of type string 
+
+Incorrect -
+TypeError 
+
+Incorrect -
+decode
+
+Your choice: correct -
+An integer  
+
+17. You have a long string with three sentences as follows:
+foo = "I visited city park today with my friends. We spent about an hour talking, playing and having a lots of fun. Will you join us next time?"
+You must extract the substring "playing" from foo. Applying indexing on such a big string requires counting each character until you reach the word "playing." In addition, the length of the string could increase to 100 sentences in future runs. How can you create a generic solution and extract the substring faster than the usual indexing method?
+
+Correct
+Use the partition() method with "playing" as its argument and apply indexing [1].
+
+Incorrect -
+Use the index() method and apply indexing foo[theIndex + 1: theIndex + 8].
+
+Incorrect -
+Use the index() method and apply indexing foo[theIndex: theIndex + 6]. 
+
+Your choice: incorrect -
+Use the split() method and count the index of the word "playing".
