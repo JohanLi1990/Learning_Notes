@@ -25,6 +25,7 @@
     - [4.7.1. LeetCoe OpenLock Example](#471-leetcoe-openlock-example)
     - [4.7.2. Depth First Search](#472-depth-first-search)
   - [4.8. Dijkstra Algorithm (Shorted distance in a weighted Graph)](#48-dijkstra-algorithm-shorted-distance-in-a-weighted-graph)
+  - [Bellman Ford Algorithm](#bellman-ford-algorithm)
   - [4.9. TopLogical Sort](#49-toplogical-sort)
   - [4.10. Minimax (Gaming and Artificial Intelligence)](#410-minimax-gaming-and-artificial-intelligence)
   - [4.11. Bit Manipulation](#411-bit-manipulation)
@@ -667,6 +668,56 @@ class Solution {
         
     }
 }
+
+```
+
+### Bellman Ford Algorithm
+- Used to find shortest path in weighted DAG, 
+- Could detect negative cycle
+
+```java
+    public TeamSolution solveForChallengeOne() {
+        double[] dist = new double[N];
+        int[] parents = new int[N];
+        Arrays.fill(dist, 0);
+        Arrays.fill(parents, -1);
+
+        dist[0] = 0d;
+
+        // relaxing this N nodes N times
+        int x = -1;
+        for (int i = 0; i < N; i++) {
+            x = -1;
+            for (var edge : edges) {
+                int u = (int)edge[0], v = (int)edge[1];
+                if (dist[u] + edge[2] < dist[v]) {
+                    dist[v] = dist[u] + edge[2];
+                    parents[v] = u;
+                    x = v;
+                }
+            }
+        }
+        if (x == -1) {
+            // cycle detected
+//            System.out.println("No cyles detected! Check the input");
+            throw new RuntimeException("No cycles detected! Check the input");
+        }
+
+        Deque<Integer> cycle = new ArrayDeque<>();
+        // relax one last time
+        for (int i = 0; i < N; i++) {
+            x = parents[x];// this step gurantee we are inside the negative cycle, crucial
+        }
+        int init = x;
+        do {
+            cycle.push(x);
+            x = parents[x];
+        } while (x != init);
+        cycle.push(init);
+
+        // i still don't know the gains!!
+        return new TeamSolution(mapToCurrencies(new ArrayList<>(cycle)), calculateGain(new ArrayList<>(cycle)));
+    }
 
 ```
 

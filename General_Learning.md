@@ -107,9 +107,9 @@
 - [8. PluralSight Java Clean code practices](#8-pluralsight-java-clean-code-practices)
 - [9. PluralSight Cloud Fundamental](#9-pluralsight-cloud-fundamental)
 - [10. PluralSight Core-Spring](#10-pluralsight-core-spring)
-- [PluralSight Python](#pluralsight-python)
-- [Output](#output)
-- [\[85, 46, 29, 73, 9\]](#85-46-29-73-9)
+- [11. PluralSight Python](#11-pluralsight-python)
+- [Hands On LLM](#hands-on-llm)
+  - [How does LLM services handle concurrencies](#how-does-llm-services-handle-concurrencies)
 
 Page 23
 
@@ -2502,7 +2502,7 @@ In a Spring Boot application, which annotation can you use as an alternative to 
 
 
 
-# PluralSight Python
+# 11. PluralSight Python
 
 1.  You are working on a Windows system and you must use the sys module to add a module from a custom location. The following script fails when you try to import the module. The custom location is: "D:\Projects\". Assume pydot is in the folder. Why is the script failing?
 ```python
@@ -2516,64 +2516,39 @@ Traceback (most recent call last):
 ModuleNotFoundError: No module named 'pydot'
 
 ```
-he module is not in that folder.
-
-Incorrect -
-You can only set the path in the PYTHONPATH environment variable.
-
-Your choice: incorrect -
-You must start with import statements and then with the append.
-
-Correct -
-**You must specify the path with raw string or escape the backslashes.**
+- [ ] The module is not in that folder.
+- [ ] You can only set the path in the PYTHONPATH environment variable.
+- [ ] You must start with import statements and then with the append.
+- [x] You must specify the path with raw string or escape the backslashes.
 
 2.  What is the output of print(type(type))?
-correct - <class 'type'>
-
-Incorrect -
-<class 'str'>
-Incorrect -
-<class 'meta'>
-Incorrect -
-<class 'class'>
+- [x] `<class 'type'>`
+- [ ] `<class 'str'>`
+- [ ] `<class 'meta'>`
+- [ ] `<class 'class'>`
 
 3. What line of code would you use to shorten the number 109.4832 to 109?
 
-**math.trunc(109.4832)**
-
-Your choice: incorrect -
-math.round(109.4832, -2)
-
-Incorrect -
-math.floor((109.4832)2)
-
-Incorrect -
-math.ceil(109.4832, 2)
+- [x] **math.trunc(109.4832)**
+- [ ] math.round(109.4832, -2)
+- [ ] math.floor((109.4832)2)
+- [ ] math.ceil(109.4832, 2)
 
 4. How would you output the following?
+```python
 var = 'Let's get going'
 print(var)
-Incorrect -
-print('Let's get going)
-
-Your choice: incorrect -
-print('Let\\'s get going')
-
-Correct -
-var = 'Let\'s get going'
-print(var)
+```
+- [ ] `print('Let's get going)`
+- [ ] `print('Let\\'s get going')`
+- [x] `var = 'Let\'s get going' print(var)**`
 
 5. You issue the following command, from math import square_root, and you get the ImportError: cannot import name 'square_root' from 'math' (unknown location). What is the problem?
-**The math module has no square_root function to be imported**
 
-Incorrect -
-It is a corrupted Python installation
-
-Incorrect -
-The math module is not installed
-
-Your choice: incorrect -
-The math as name for a module is invalid
+- [x] **The math module has no square_root function to be imported**
+- [ ] It is a corrupted Python installation
+- [ ] The math module is not installed
+- [ ] The math as name for a module is invalid
 
 6. What is the output of the following code?
 
@@ -2587,17 +2562,10 @@ finally:
     print('H')
 ```
 
-AC
-H
-Incorrect -
-CH
-
-Correct -
-AH
-
-Incorrect -
-C
-H
+- [ ] AC H
+- [ ] CH
+- [x] **AH**
+- [ ] C H
 
 7. You create a Context Manager class to perform file handling as follows:
 ```python
@@ -2613,170 +2581,263 @@ class FileManager():
 ```
 The class consists of operations such as opening a file and writing/reading contents. It misses a method to close the file, however. Which code can you use to close the file and provide necessary information in case of an exception?
 
-**def __exit__(self, exc_type, exc_value, exc_traceback):   
-    self.file.close() **
-    
-Incorrect -
+```python
+def __exit__(self, exc_type, exc_value, exc_traceback):   
+    self.file.close()
+```
+
+```
 def __exit__(exc_type, exc_value, exc_traceback):   
     file.close() 
-Your choice: incorrect -
+```
+```
 def __exit__(self):   
     self.file.close() 
-Incorrect -
+```
+```
 def __exit__(self, exc_type, exc_value, exc_traceback):   
     self.close() 
-
+```
 8. You have two lists stored in variables First and Last. The length of the first list is five whereas the length of the second list is six. How can you add the first five elements from each list?
+
+```python
 First = [8, 5, 7, 8, 2]
 Last = [77, 41, 22, 65, 7, 5]
 
 # Output
 # [85, 46, 29, 73, 9]
-
-correct - [i + j for i, j in zip(First, Last)]
+```
+```python
+[i + j for i, j in zip(First, Last)]
+```
+```
 Incorrect -
 [i = First[i] + j = Last[j] for i, j in map(First, Last)]
+```
+```
 Incorrect -
 concat(First[i], Last[j])
+```
+```
 Incorrect -
 [i + j for lambda(i,j) in concat(First, Last)]
+```
 
 9. Consider the given class:
-class ListMetaclass(type):
-    def __new__(cls, name, bases, attrs):
-        attrs['add'] = lambda self, value: self.append(value)
-        return type.__new__(cls, name, bases, attrs)
-How can you create a CustomList class and add values User1 and User2 to the list?
+  ```python
+    class ListMetaclass(type):
+        def __new__(cls, name, bases, attrs):
+            attrs['add'] = lambda self, value: self.append(value)
+            return type.__new__(cls, name, bases, attrs)
+    How can you create a CustomList class and add values User1 and User2 to the list?
+  ```
+  ```
+    class CustomList(lst, metaclass=ListMetaclass):
+        lst = ['User1', 'User2']
+        pass
 
-class CustomList(lst, metaclass=ListMetaclass):
-    lst = ['User1', 'User2']
-    pass
+    lst = CustomList()
+    lst.add('User1')
+    lst.add('User2')
+  ```
+  ```
+    Your choice: incorrect -
+    class CustomList(metaclass=ListMetaclass):
+        pass
 
-lst = CustomList()
-lst.add('User1')
-lst.add('User2')
-Your choice: incorrect -
-class CustomList(metaclass=ListMetaclass):
-    pass
+    lst = CustomList()
+    lst.add('User1')
+    lst.add('User2')
+  ```
 
-lst = CustomList()
-lst.add('User1')
-lst.add('User2')
-Correct -
-class CustomList(list, metaclass=ListMetaclass):
-    pass
+  ```python
+    class CustomList(list, metaclass=ListMetaclass):
+        pass
 
-lst = CustomList()
-lst.add('User1')
-lst.add('User2')
-Incorrect -
-class CustomList(lst, metaclass=ListMetaclass):
-    pass
+    lst = CustomList()
+    lst.add('User1')
+    lst.add('User2')
+  ```
+  ```
+    Incorrect -
+    class CustomList(lst, metaclass=ListMetaclass):
+        pass
 
-lst = CustomList()
-lst.add('User1')
-lst.add('User2')
-
-10. An object named p from a class named person contains attributes for first name and last name. What code option would change the attribute last_name of the class person to "User1"?
-
+    lst = CustomList()
+    lst.add('User1')
+    lst.add('User2')
+  ```
+10.  An object named p from a class named person contains attributes for first name and last name. What code option would change the attribute last_name of the class person to "User1"?
+```
+Incorrect
 setattr(p[last_name] == 'User1')
-
-Your choice: correct -
+```
+```python
 setattr(p, 'last_name', 'User1')
-
+```
+```
 Incorrect -
 setattr(p.last_name =  'User1')
-
+```
+```
 Incorrect -
 setattr('p.last_name', 'User1')
+```
 
 11. Which list method can remove a list's elements using their index?
+```
+Incorrect
 remove()
-
+```
+```
 Incorrect -
 index()
-
-Correct -
+```
+```python
+# Correct -
 pop()
-
+```
+```
 Incorrect -
 delete()
+```
+12. In Python, when does the else statement of a for loop run? (*else branch will only run if for loop finishes successfully, if it breaks, else branch will not run*)
 
-12. In Python, when does the else statement of a for loop run? (*it can useful for searching stuff, if found do somethin, not found do others*)
-When the for loop encounters an error
+- [ ] When the for loop encounters an error
+- [x] **After the for loop completes all iterations**
+- [ ] Before each iteration of the for loop
+- [ ] When the for loop breaks
 
-Correct -
-After the for loop completes all iterations
+13.  Using Python, how can you get the base-10 (Unicode) code point for a single str character?
 
-Incorrect -
-Before each iteration of the for loop
-
-Incorrect -
-When the for loop breaks
-
-13. Using Python, how can you get the base-10 (Unicode) code point for a single str character?
-Use the Python original number function ori on the number within the unicode text.
-
-Your choice: incorrect -
-Use the Python specifier function spef on the number within the f-string value.
-
-Correct -
-Use the Python ord() function on the the actual object whose value will be formatted.
-
-Incorrect -
-Use the Python unicode function uni on the number whose value you would like formatted.
+- [ ] Use the Python original number function `ori()` on the number within the Unicode text.
+- [ ] Use the Python specifier function `spef()` on the number within the f-string value.
+- [x] **Use the Python `ord()` function to get the Unicode code point of a single character.**
+- [ ] Use the Python Unicode function `uni()` on the number whose value you would like formatted.
 
 14. What syntax in functions would you use to pass a varied number of non-keyword arguments?
-Correct
-*args
 
-Incorrect -
-pos
-
-Incorrect -
-**kwargs
-
-Your choice: incorrect -
-**args
+- [x] `*args`
+- [ ] `pos`
+- [ ] `**kwargs`
+- [ ] `**args`
 
 15. You must create an Iterator to iterate from values one to five and then stop. How can you do it using a generator expression?
-Incorrect
-[i for i in range(1,6)]
 
-Correct -
-(i for i in range(1,6))
+- [ ] `[i for i in range(1,6)]`
+- [x] `(i for i in range(1,6))`
+- [ ] `(i for i in range(5))`
+- [ ] `{i for i in range(1,6)}`
 
-Incorrect -
-(i for i in range(5))
+16. What is the output of the code `print(hash('decode'))`?
 
-Incorrect -
-{i for i in range(1,6)}
+- [ ] An integer of type string
+- [ ] TypeError
+- [ ] decode
+- [x] An integer
 
-16.  What is the output of the code print(hash('decode'))?
-Incorrect
-An integer of type string 
+17. You have a long string with three sentences as follows:  
+`foo = "I visited city park today with my friends. We spent about an hour talking, playing and having a lots of fun. Will you join us next time?"`  
+You must extract the substring "playing" from `foo`. Applying indexing on such a big string requires counting each character until you reach the word "playing." In addition, the length of the string could increase to 100 sentences in future runs. How can you create a generic solution and extract the substring faster than the usual indexing method?
 
-Incorrect -
-TypeError 
+- [x] Use the `partition()` method with "playing" as its argument and apply indexing `[1]`.
+- [ ] Use the `index()` method and apply indexing `foo[theIndex + 1: theIndex + 8]`.
+- [ ] Use the `index()` method and apply indexing `foo[theIndex: theIndex + 6]`.
+- [ ] Use the `split()` method and count the index of the word "playing".
 
-Incorrect -
-decode
+# Hands On LLM
 
-Your choice: correct -
-An integer  
+## How does LLM services handle concurrencies
 
-17. You have a long string with three sentences as follows:
-foo = "I visited city park today with my friends. We spent about an hour talking, playing and having a lots of fun. Will you join us next time?"
-You must extract the substring "playing" from foo. Applying indexing on such a big string requires counting each character until you reach the word "playing." In addition, the length of the string could increase to 100 sentences in future runs. How can you create a generic solution and extract the substring faster than the usual indexing method?
+*from ChatGPT*
 
-Correct
-Use the partition() method with "playing" as its argument and apply indexing [1].
+1. Batch Processing
+Instead of processing one request at a time, LLMs handle multiple requests in parallel by grouping them into a batch.
 
-Incorrect -
-Use the index() method and apply indexing foo[theIndex + 1: theIndex + 8].
+The model then processes all the requests in the batch simultaneously, utilizing optimized GPU/TPU operations.
 
-Incorrect -
-Use the index() method and apply indexing foo[theIndex: theIndex + 6]. 
+Each request in the batch can have different input lengths, so padding techniques are used to ensure efficient computation.
 
-Your choice: incorrect -
-Use the split() method and count the index of the word "playing".
+2. Token-wise Parallelism
+While LLMs generate text one token at a time per request, they compute the next tokens for multiple requests at the same time.
+
+This is achieved through matrix multiplications (key operations in neural networks), which run efficiently on GPUs/TPUs.
+
+3. Asynchronous Processing
+Cloud-based LLM services use asynchronous request handling. While waiting for the model to generate tokens, new requests keep coming in, ensuring the system remains efficient.
+
+Some models also use streaming responses to send generated tokens as soon as they are available.
+
+4. Efficient Scheduling
+When multiple users send requests, the system dynamically schedules them to maximize GPU utilization.
+
+Low-latency requests may be prioritized differently from long-form text generations.
+
+In short, while each request is processed token by token, multiple requests are handled in parallel at different stages of processing. This allows LLMs to serve many users efficiently without waiting for each response to complete before starting the next one.
+
+How does inference server work?:
+1️⃣ How Models Are Deployed on Inference Servers
+In an actual OpenAI-scale setup, each inference server does NOT necessarily hold the full GPT-4 model. Instead, the system is designed to handle massive parallelism efficiently:
+
+🚀 Scenario 1: Each Server Has the Full Model (Standalone Mode)
+Some inference servers might load the entire GPT-4 model into high-speed GPU memory (VRAM).
+
+This works well for smaller models or when a single machine has enough VRAM (e.g., an NVIDIA DGX H100 with 8 GPUs).
+
+Each server processes multiple requests independently.
+
+🔹 Pros: Lower latency, easy to scale by adding more servers.
+🔹 Cons: Limited by GPU memory (GPT-4 is massive and likely doesn’t fit on a single GPU).
+
+🚀 Scenario 2: Model Sharding (Distributed Mode)
+For huge models like GPT-4, OpenAI likely uses model sharding across multiple servers.
+
+🔹 How it works:
+
+The GPT-4 model is too big for one machine, so it's split across multiple inference servers.
+
+Each server stores only a part of the model (e.g., layers 1–10 on Server A, layers 11–20 on Server B, etc.).
+
+When a request comes in, the servers work together to compute the result.
+
+🔹 Pros:
+
+Supports ultra-large models that don’t fit on a single GPU.
+
+More efficient GPU utilization across a cluster.
+
+🔹 Cons:
+
+More complex to manage and requires fast inter-server communication.
+
+Slightly higher latency due to network overhead.
+
+🚀 Scenario 3: Mixture of Experts (MoE)
+Some models use Mixture of Experts (MoE), where different servers specialize in different parts of the model.
+
+Only some "experts" are activated per request, reducing compute load.
+
+This saves GPU memory and lowers cost while keeping the model large.
+
+🔹 Example:
+
+One server specializes in creative writing, another in math problems.
+
+When you ask a math question, only the math expert activates, saving compute power.
+
+2️⃣ What Happens When a Request Arrives?
+1️⃣ User sends a request to OpenAI's API.
+2️⃣ A load balancer routes it to an inference server or a cluster.
+3️⃣ If the full model fits in one server → That server generates the response.
+4️⃣ If the model is sharded → Multiple servers collaborate to process the request.
+5️⃣ The generated text is returned to the user, token by token.
+
+3️⃣ TL;DR
+✔ Small models → A single inference server can load the entire model.
+✔ Large models (like GPT-4) → The model is split across multiple servers.
+✔ OpenAI likely uses a mix of sharding, MoE, and distributed processing for efficiency.
+
+🔥 Bottom line: Not every inference server has the full GPT-4 model, but every request is handled by the right combination of servers.
+
+- If you just want to run a model in your local, you can just intall the necessary python library (ollama hugging face), and run it from python interpreter
+- However if you want to deploy a solution that can handle huge inference load, you will need to know Triton.
