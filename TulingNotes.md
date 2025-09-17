@@ -18,3 +18,24 @@
   - Why tomcat could do hot reload for jsp, but not for jar?
   - Why do we need custom class loader? how is it implement (by overriding loadClass method in ClassLoader)
   - Why cannot child class override static method from main class (invokevirtual vs invokestatic in JLS)
+
+## 类加载机制实在（升值加薪之旅）2025-09-17
+- JDK8 classloading summary:
+  - Classloading cache (in native methods)
+  - Parents delegations: upward delegations, downward loading
+  - domain protection (sanbox protection) : `preDefineClass` method in `ClassLoader.java`
+
+- Linking process (the subtle native `resolveClass` method in `ClassLoader.java`)
+  - Verfication: is the bytecode aligned with JLS, is there CAFEBABE? is there any children of final class, which is forbidden etc
+  - Preparation: setting up memory for static fields of a class, and assign default value.
+  - Resolution:
+    - Purpose: Replace symbolic references in the constant pool with direct references.
+    - Symbolic references are strings like "java/lang/Object" or "doSomething:()V".
+    - Resolution turns these into actual pointers (to Class objects, method table entries, field offsets). Done lazily in some JVMs: the JVM spec allows resolution to happen at use time, not strictly during linking. 
+- 实战
+  - `OADemo2.java`: use URLCalssLoader to load jar from remote web server or file directory
+  - `OADemo3.java`: Customized ClassLoader + ByteCode Obfuscation
+  - `OADemo5.java`: Hot reloading of Class: create a new Classloader instance everytime you calculate salary. Performance not good, huge GC burden.
+  - `OADemo6.java`: Customized ClassLoader still delegates class loading to AppClassLoader, and if there is a SalaryCaler class under the current src directory, src/SalaryCaler.java will be loaded before our custom jar from another directory. We need to break the parent delegation and prioritize loading with the current file from jar. 
+  - `OADemo9.java`: Use JDK SPI and Spring Boot SPI to return services implementations for use, dynamically, without reflection.
+    - Note that for **Any** Custom ClassLoader, if you call `super.loadClass()`, you will inevitably trigger the default Parents Delegations in JDK, so all services in current directory that matches your class fullname will get loaded.
