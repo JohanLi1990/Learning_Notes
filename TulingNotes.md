@@ -39,3 +39,29 @@
   - `OADemo6.java`: Customized ClassLoader still delegates class loading to AppClassLoader, and if there is a SalaryCaler class under the current src directory, src/SalaryCaler.java will be loaded before our custom jar from another directory. We need to break the parent delegation and prioritize loading with the current file from jar. 
   - `OADemo9.java`: Use JDK SPI and Spring Boot SPI to return services implementations for use, dynamically, without reflection.
     - Note that for **Any** Custom ClassLoader, if you call `super.loadClass()`, you will inevitably trigger the default Parents Delegations in JDK, so all services in current directory that matches your class fullname will get loaded.
+
+## JVM内存模型深度剖析与优化 (JVM model Deep Analysis) 2025-09-18
+- JVM Model: 
+  ![JVM Model](JVM_model.png)
+
+- Runtime Data Areas: PC, Method Area (MetaSpace), Heap, Stack, Native Method Stack
+- For each method call there will be Stack Frame:
+  - For each frame contains:
+    - Local Variables (primitive types, object references)
+    - Operand Stack (for intermediate calculations)
+    - Frame Data (method return address, etc)
+    - Dynamic Linking (reference to the runtime constant pool)
+- JVM options:
+  - Standard options, `java -h`
+  - Non-standard options, `java -X`
+  - Advanced options, `java -XX:+PrintFlagsFinal`
+- Notable JVM applications in Spring Boot:
+  - Tomcat/catalina.sh: 
+  ```java
+    java ‐Xms2048M ‐Xmx2048M ‐Xmn1024M ‐Xss512K ‐XX:MetaspaceSize=256M ‐XX:MaxMetaspaceSize=256M ‐jar microservice‐eureka‐server.jar
+  ```
+  we fix the size of `MetaspaceSize` and `MaxMetaspaceSize` to avoid dynamic expansion of metaspace, to avoid full GC pauses.
+
+- Notable Intervew Questions: Why do we need to do STW? why can't we do GC while application is running?
+  - Answer: we cannot becuase during GC, objects may be moved, if the object marked for moving is no longer needed (because app is running at the same time), we are wasting resource moving them to old generation. Also, if we are moving objects while app is running, the app may be accessing the object at the same time, leading to data inconsistency.
+- Tools: jstat, jmap, jstack, jinfo, jcmd, VisualVM, VisualGC, Mission Control, et
