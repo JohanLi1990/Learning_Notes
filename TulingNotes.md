@@ -65,3 +65,28 @@
 - Notable Intervew Questions: Why do we need to do STW? why can't we do GC while application is running?
   - Answer: we cannot becuase during GC, objects may be moved, if the object marked for moving is no longer needed (because app is running at the same time), we are wasting resource moving them to old generation. Also, if we are moving objects while app is running, the app may be accessing the object at the same time, leading to data inconsistency.
 - Tools: jstat, jmap, jstack, jinfo, jcmd, VisualVM, VisualGC, Mission Control, et
+
+## JVM对象创建与内存分配机制深度剖析 2025-09-19
+
+- This lesson deepdives into JVM, and even analyzes how certain process are called in C++ code in HotSpot JVM.
+- Metaspace (JDK8+), PermGen (JDK7 and below)
+  - Class metadata, static variables, constants
+  - Metaspace is allocated in native memory, not in heap memory
+  - Default size is 21MB, can be adjusted with `-XX:MetaspaceSize` and `-XX:MaxMetaspaceSize`, it is best practice to set both to the same value to avoid dynamic expansion
+  - When metaspace is full, it will trigger a full GC to reclaim space
+  - Common issues: `java.lang.OutOfMemoryError: Metaspace`, can be solved by increasing metaspace size or reducing class loading/unloading
+- During production, based your business load, you can actually calculate the required JVM memory size, and set the JVM options accordingly.
+  - For example, if you have 300 orders/sec, that could amount to 300kb/sec in object creations, 
+  - There are other things that comes with the order (coupons, stocks etc) so lets amplify by 20 , 200 * 300kb/sec,
+  - if there are other order queries, we might amplify by another 10 times, 10 * 200 * 300kb/sec = 60 MB/sec
+  - However those orders are short lived orders, if we do this `-Xmn2048m` so we increase the young gen to 2G, we can reduce full gc
+- JVM object creations:
+  - class loading
+  - memory allocation
+  - initialization
+  - set object header
+  - run init method
+- Notable concepts: 
+  - Pointer Compression (default in 64bit JVM, actually just left shift by 3 bits so we can reduce memory footprint), TLAB (Thread Local Allocation Buffer),
+  - JVM Stack allocation, escape analysis: stack allocation, scalar replacement, lock elision
+This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting. 
