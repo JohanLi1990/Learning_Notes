@@ -90,3 +90,73 @@
   - Pointer Compression (default in 64bit JVM, actually just left shift by 3 bits so we can reduce memory footprint), TLAB (Thread Local Allocation Buffer),
   - JVM Stack allocation, escape analysis: stack allocation, scalar replacement, lock elision
 This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting. 
+
+## 深⼊理解 JVM 执⾏引擎 2025-09-20
+ - Just In time Compiler, Interpreter + c1 compiler + c2 compiler.
+ - Hotspot code detection (Invocation counter and Back Edge Counter)
+ - Compiler Optimization techniques: 
+   - inline, 
+   - vectorization, 
+   - **Escape Analysis** -> **Scalar Replacement(-XX:+EliminateAllocation)** + **Stack Allocation**, 
+   - lock elision
+   - loop unrolloing: fewer branch instructions, easier to spot vectorization opps (SIMD)
+
+## Summary for last 5 days
+1. **Compilation (outside JVM)**
+   - `javac SomeClass.java` → produces `SomeClass.class` (bytecode).
+
+2. **JVM Startup**
+   - JVM process starts.
+   - Initializes core classloaders:
+     - **BootstrapClassLoader**
+     - **PlatformClassLoader**
+     - **AppClassLoader**
+   - Chooses a **GC algorithm** (e.g., G1, ZGC, Shenandoah) and spawns dedicated **GC worker threads**.
+
+3. **Class Loading & Linking**
+   - `SomeClass.class` is located and loaded by AppClassLoader.
+   - Linking steps:
+     - **Verification**
+     - **Preparation**
+     - **Resolution**
+   - Initialization: run `<clinit>` (static blocks, static fields).
+
+4. **Class Metadata Storage**
+   - Class structure, constant pool, vtables, etc. stored in **Metaspace**.
+   - At this point: still no objects, only metadata.
+
+5. **Program Execution Begins**
+   - `main()` is invoked.
+   - Bytecode is executed by the **interpreter**.
+   - On `new SomeClass()`:
+     - JVM allocates memory in heap (usually Eden region).
+     - Sets **object header** (mark word, klass pointer).
+     - Initializes instance fields.
+
+6. **Profiling & Hotspot Detection**
+   - JVM collects runtime profiles (method invocation counts, branch frequencies, type profiles).
+   - Identifies “hot” methods (frequently executed code paths).
+
+7. **JIT Compilation**
+   - Hot methods compiled into native code:
+     - **C1 (client compiler):** quick, lightweight optimizations.
+     - **C2 (server compiler):** deeper optimizations (inlining, escape analysis, lock elision, vectorization, etc.).
+   - Compiled code replaces interpreted execution.
+
+8. **Native Execution**
+   - CPU executes optimized machine code directly.
+   - If speculative optimizations prove wrong (e.g., unexpected type at a call site):
+     - The method is **deoptimized**.
+     - Falls back to interpreter.
+     - May be recompiled later.
+
+9. **Garbage Collection (Always Running in Background)**
+   - GC worker threads continuously monitor allocation and heap pressure.
+   - When thresholds are exceeded (e.g., Eden fills, old gen grows, metaspace expands):
+     - **Stop-The-World (STW)** pauses: all app threads frozen briefly.
+     - **Concurrent phases**: GC threads run alongside app threads.
+   - Dead objects reclaimed, heap compacted (depending on GC algorithm).
+
+10. **Repeat Cycle Until Shutdown**
+    - Execution ↔ Profiling ↔ JIT ↔ GC cycles continue for the life of the JVM process.
+    - On shutdown, JVM may run a final GC and then tear down threads and memory.
