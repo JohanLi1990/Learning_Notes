@@ -90,7 +90,7 @@
   - Pointer Compression (default in 64bit JVM, actually just left shift by 3 bits so we can reduce memory footprint), TLAB (Thread Local Allocation Buffer),
   - JVM Stack allocation, escape analysis: stack allocation, scalar replacement, lock elision
 This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting. 
-
+---
 ## 深⼊理解 JVM 执⾏引擎 2025-09-20
  - Just In time Compiler, Interpreter + c1 compiler + c2 compiler.
  - Hotspot code detection (Invocation counter and Back Edge Counter)
@@ -160,3 +160,54 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 10. **Repeat Cycle Until Shutdown**
     - Execution ↔ Profiling ↔ JIT ↔ GC cycles continue for the life of the JVM process.
     - On shutdown, JVM may run a final GC and then tear down threads and memory.
+  
+## 垃圾收集器ParNew&CMS与底层三色标记算法详解 (Tri-color marking) 2025-09-21
+- Various collection algorithms, Garbage collectors usually employ one or more algorithms in its implementations
+- Algorithms:
+    - Copying collection: usually in young generation
+      - From space and to Space (Survior 1 and Survivor 2)
+    - Mark and Sweep
+    - Mark-Sweep-Compact
+    - Generatonal Collection (a trategy not a new algorithm): Copying for young gen (fast) + Mark-Sweep-Compact for old gen (handles large objects avoid fragmentations)
+- Concurrent Mark Sweep Collector
+  - initial Mark: STW
+  - Concurrent Mark: 
+  - Conccurrent Preclean
+  - Remark: STW
+  - Concurrent Seep
+  - Concurrent Reset:
+- If there are sudden heavy load on the app, CMS can degrade to PrallelOld, which is fully STW.
+- Tricolor marking: 
+  - Black (Node visited and all children visited  will be grey)
+  - Grey (process about to visite the node but hasn't reached yet)
+  - white (not visited node)
+  - **Strong invariant: No black -> white edges exist**
+  - **Weak invariant: Black -> white edges may exist but every such edge is recorded so the collector will re(scan) it**
+  - However if not careful, there could be some white nodes being refered back to black node during concurrent Marking phase. Then if there are no procedures to protect thos white nodes, they will be garbage collected and then our applicaiton will throw Exceptions.
+  - Two ways to resolve the previous problem:
+    - Incremental - Update (aka insertion barrier)
+      - On pointer write, if we store a refere x-> y we either Grey the target y immediately or Record the modfied slot/card so the source will be rescanned:
+        ```c
+        on_write(field, newRef):
+        if marking_in_progress:
+          if object(holder(field)) is BLACK:
+            record_modified_card(holder(field))   // or shade(newRef)
+        
+        ```
+      - Effect: prevents a black object from “silently” pointing to white—either the target becomes gray, or the card with the black source is rescanned later.
+    - SATB - Snapshot-At-The-Beginning.
+      - Freeze the heap graph at `initial marking`, On overwrite, log the **old** reference so anything that was reachable at the snapshot remains marked.
+        ```c
+        on_write(field, newRef):
+        if marking_in_progress:
+          oldRef = *field
+          if oldRef != null:
+            enqueue_SATB_buffer(oldRef)  // old ref will be marked
+        *field = newRef
+        ```
+      - Effect: ensures objects that were reachable at the beginning can’t be lost even if the mutator drops the last reference during marking.
+  - Which JVM collectors use what?
+    - CMS: Incremental-update write barrier + card table; remark rescans dirty cards.
+    - G1: SATB barrier; logs old refs in per-thread buffers; remark drains these.
+    - Shenandoah: SATB + load barriers for concurrent evacuation.
+    - ZGC: heavy use of load barriers with colored pointers; maintains reachability and remapping without long pauses (conceptually enforces the invariant on loads rather than stores).
