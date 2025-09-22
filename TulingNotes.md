@@ -211,3 +211,21 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - G1: SATB barrier; logs old refs in per-thread buffers; remark drains these.
     - Shenandoah: SATB + load barriers for concurrent evacuation.
     - ZGC: heavy use of load barriers with colored pointers; maintains reachability and remapping without long pauses (conceptually enforces the invariant on loads rather than stores).
+
+## 垃圾收集器G1&ZGC详解 2025-09-22
+
+- G1 GC: **initial Mark** -> **Concurrent Mark** -> **Remark** -> **Cleanup**
+  - Regions based, still generational, but a lot of regions
+  - Humongous regions to take care of big objects, not moving them anymore. 
+  - User could customize pause goal, which is very helpful for managing GC time
+  - YounGC: it is **not triggered** immediately when Eden is full, it will calculate how long it takes to collect Eden, if it is very fast, then increase the Eden regions
+  - MixedGC: `-XX:InitiatingHeapOccupancyPercent` Collect all Young and part old and humongous, how many to collect depends on the `MaxGCPauseMilis` value.
+  - FullGC: like SerialGC, very time consuming.
+- Notable Interview Question on G1 applications
+  - A kafka system, 10 thousands order per sec is normal
+  - We need to increase young gen size to accomodate all short-lived, large objects, so that they do not trigger GC that often.
+  - However if we have alot of short lived large objects, and we use ParNew, It will be quite lenthy STW, because Young Gen size if large now!
+  - If we apply G1 to manage young gen, we can have a consistent pause goal, User will not feel a thing. App could collect garbage while handling business.
+- ZGC: **TB heaps**, **10ms GC pause time**, 
+  - Colored pointer: instead of storing GC information in object headers, now ZGC stores it in refernce pointer. 
+  - Then it uses load barrier to update the reference pointer lazily (via ForwardTable)
