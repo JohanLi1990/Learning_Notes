@@ -1,5 +1,18 @@
 # Tuling Notes
 
+- [Tuling Notes](#tuling-notes)
+  - [全面理解JVM](#全面理解jvm)
+  - [类加载机制实在（升值加薪之旅）2025-09-17](#类加载机制实在升值加薪之旅2025-09-17)
+  - [JVM内存模型深度剖析与优化 (JVM model Deep Analysis) 2025-09-18](#jvm内存模型深度剖析与优化-jvm-model-deep-analysis-2025-09-18)
+  - [JVM对象创建与内存分配机制深度剖析 2025-09-19](#jvm对象创建与内存分配机制深度剖析-2025-09-19)
+  - [This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting.](#this-lesson-is-very-hardcore-there-are-alot-of-useful-informations-lesson-3-and-lesson-4-are-worth-revisiting)
+  - [深⼊理解 JVM 执⾏引擎 2025-09-20](#深理解-jvm-执引擎-2025-09-20)
+  - [Summary for last 5 days](#summary-for-last-5-days)
+  - [垃圾收集器ParNew\&CMS与底层三色标记算法详解 (Tri-color marking) 2025-09-21](#垃圾收集器parnewcms与底层三色标记算法详解-tri-color-marking-2025-09-21)
+  - [垃圾收集器G1\&ZGC详解 2025-09-22](#垃圾收集器g1zgc详解-2025-09-22)
+  - [JVM调优工具详解及调优实战 (Practicals JVM tools) 2025-09-23](#jvm调优工具详解及调优实战-practicals-jvm-tools-2025-09-23)
+
+
 ## 全面理解JVM
 
 - How is Java program executed. (tools: UltraEdit for byte code, jclasslib for analysis and understanding). Java execution has to abide Java Language Specification
@@ -213,7 +226,6 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - ZGC: heavy use of load barriers with colored pointers; maintains reachability and remapping without long pauses (conceptually enforces the invariant on loads rather than stores).
 
 ## 垃圾收集器G1&ZGC详解 2025-09-22
-
 - G1 GC: **initial Mark** -> **Concurrent Mark** -> **Remark** -> **Cleanup**
   - Regions based, still generational, but a lot of regions
   - Humongous regions to take care of big objects, not moving them anymore. 
@@ -229,3 +241,14 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 - ZGC: **TB heaps**, **10ms GC pause time**, 
   - Colored pointer: instead of storing GC information in object headers, now ZGC stores it in refernce pointer. 
   - Then it uses load barrier to update the reference pointer lazily (via ForwardTable)
+
+## JVM调优工具详解及调优实战 (Practicals JVM tools) 2025-09-23
+- **jstat**: `jstack -gc <pid> <frequency> <times>`
+  - e.g. `jstack -gc 1604 2000 1000` track pid 1604, print gc info every 2 seconds, 1000 times
+- **jinfo**: check the jvm opts flags for current application
+  - e.g. `jinfo -flags 1604`
+- Based on jstat info there are alot of informations to investigate:
+  - why are YGC so frequent? what causes Eden to grow so fast?
+  - Calculate how much objects are moved to Old gen.
+  - Why are FGC so often, how much time are spent.
+- **Optimizing Goal**: At the end of day, we **want low to no FullGC**, and henceforth **we want, after each YGC, the size of surviving objects to be less than 50% of S0/S1 regions**, so that no objects have to be moved to old gen
