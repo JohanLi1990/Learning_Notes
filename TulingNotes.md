@@ -11,6 +11,7 @@
   - [垃圾收集器ParNew\&CMS与底层三色标记算法详解 (Tri-color marking) 2025-09-21](#垃圾收集器parnewcms与底层三色标记算法详解-tri-color-marking-2025-09-21)
   - [垃圾收集器G1\&ZGC详解 2025-09-22](#垃圾收集器g1zgc详解-2025-09-22)
   - [JVM调优工具详解及调优实战 (Practicals JVM tools) 2025-09-23](#jvm调优工具详解及调优实战-practicals-jvm-tools-2025-09-23)
+  - [JVM调优实战及常量池详解 (Practicals JVM tools) 2025-09-24](#jvm调优实战及常量池详解-practicals-jvm-tools-2025-09-24)
 
 
 ## 全面理解JVM
@@ -252,3 +253,20 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Calculate how much objects are moved to Old gen.
   - Why are FGC so often, how much time are spent.
 - **Optimizing Goal**: At the end of day, we **want low to no FullGC**, and henceforth **we want, after each YGC, the size of surviving objects to be less than 50% of S0/S1 regions**, so that no objects have to be moved to old gen
+
+## JVM调优实战及常量池详解 (Practicals JVM tools) 2025-09-24
+- Arthas techniques:
+  - `arthas: dashboard`
+  - `arthas: heapdump`
+  - `thread <thread-id>` , use `thread` to see thread info.
+  - use `jad` to de-compile.
+  - highly dangerous: use `ongl` to modify only java objects.
+- Arthas used `Java Agent`, `Instrumentations Api`, under the hood.
+- Constant pool
+  - Literals and Symbolic references
+    - `int a = 1`, `1` is literal, `a` is symbolic reference.
+  - when Constant pool is loaded into jvm, the symbols will be dynamic linked to the reference (actual object) in memory.
+  - String constant pool
+    - be careful of `new String("<your string literal>")`, it will create two objects.
+    - like a hastable, it is located in heap.
+  - Integer, Long, Character, Byte, Boolean all have `Cache`, which is equivalent of constant pool.
