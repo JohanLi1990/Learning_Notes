@@ -12,6 +12,7 @@
   - [垃圾收集器G1\&ZGC详解 2025-09-22](#垃圾收集器g1zgc详解-2025-09-22)
   - [JVM调优工具详解及调优实战 (Practicals JVM tools) 2025-09-23](#jvm调优工具详解及调优实战-practicals-jvm-tools-2025-09-23)
   - [JVM调优实战及常量池详解 (Practicals JVM tools) 2025-09-24](#jvm调优实战及常量池详解-practicals-jvm-tools-2025-09-24)
+  - [JDK新特性梳理 2025-09-25](#jdk新特性梳理-2025-09-25)
 
 
 ## 全面理解JVM
@@ -270,3 +271,16 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - be careful of `new String("<your string literal>")`, it will create two objects.
     - like a hastable, it is located in heap.
   - Integer, Long, Character, Byte, Boolean all have `Cache`, which is equivalent of constant pool.
+
+## JDK新特性梳理 2025-09-25
+- What are some of the new features in JDK 17+?
+  - Syntax Sugars: String block, Switch expression, 
+  - Record class (good for DTO), record class does not support invocation by reflection, even safer,
+  - Hidden Class, get class from bytes. better obfuscations
+    - use ASM library to manipulate byte directly: [baeldung article](https://www.baeldung.com/java-asm)
+  - Sealed Classes: choose which children is allowed
+  - **Virtual Thread**: Kindof like co-routine
+  - modules
+  - vector api
+  - G1GC is used everywhere
+  - GraalVM, + Truffle Lnaguage Implementation Framework, you can imlement your own programming language.
