@@ -13,6 +13,7 @@
   - [JVM调优工具详解及调优实战 (Practicals JVM tools) 2025-09-23](#jvm调优工具详解及调优实战-practicals-jvm-tools-2025-09-23)
   - [JVM调优实战及常量池详解 (Practicals JVM tools) 2025-09-24](#jvm调优实战及常量池详解-practicals-jvm-tools-2025-09-24)
   - [JDK新特性梳理 2025-09-25](#jdk新特性梳理-2025-09-25)
+  - [JDK17的GC调优策略 2025-09-26](#jdk17的gc调优策略-2025-09-26)
 
 
 ## 全面理解JVM
@@ -284,3 +285,10 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - vector api
   - G1GC is used everywhere
   - GraalVM, + Truffle Lnaguage Implementation Framework, you can imlement your own programming language.
+
+## JDK17的GC调优策略 2025-09-26
+- Look at famous open source application, (e.g. RocketMQ) to see how it is optimized.
+- JDK JVM:
+  - On Heap: OBjects
+  - off heap: Thread Stack, Metaspace, CodeCache, ClassSpace, direct buffer + mapped buffer
+- Important optimzation parameter IHOP, MaxGCPauseTime.
