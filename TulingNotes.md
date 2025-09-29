@@ -14,6 +14,8 @@
   - [JVM调优实战及常量池详解 (Practicals JVM tools) 2025-09-24](#jvm调优实战及常量池详解-practicals-jvm-tools-2025-09-24)
   - [JDK新特性梳理 2025-09-25](#jdk新特性梳理-2025-09-25)
   - [JDK17的GC调优策略 2025-09-26](#jdk17的gc调优策略-2025-09-26)
+  - [全面理解Mysql架构 2025-09-28](#全面理解mysql架构-2025-09-28)
+  - [深入理解Mysql索引底层数据结构与算法 2025-09-29](#深入理解mysql索引底层数据结构与算法-2025-09-29)
 
 
 ## 全面理解JVM
@@ -292,3 +294,53 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - On Heap: OBjects
   - off heap: Thread Stack, Metaspace, CodeCache, ClassSpace, direct buffer + mapped buffer
 - Important optimzation parameter IHOP, MaxGCPauseTime.
+
+## 全面理解Mysql架构 2025-09-28
+- Two layers: Server Layer and Storage Engine
+- Server layer: Mysql-connector, Query cache, query parser, query optimizer, query executor
+- Storage layer: different types of storage engine, default is innoDB.
+  ![MySQL architecture](mysql_architecture.png)
+- Redo log:
+  - it recored the physical change to the DB server.
+  - WAL technology, 
+  - All updates will be written to redolog first, and then executed on disk when innoDB engine is not busy
+  - Crash safe, If I some how my disk got destroyed, I can still replay my redo log to recreate my DB.
+- Bin log:
+  - Implemented by Mysql server (not part of storage engine)
+  - it recorded the **original sql logics**
+- MySQL, Two phase commits
+  - Prepare phase
+    - InnnoDB writes transaction changes into its redo log buffer, and marks it as prepared
+    - InnoDB gurantees it can be later either commited or rollback.
+    - nothing is yet written to binlog
+  - Commit phase
+    - Server writes the transactions binlog entry(SQL/row events) and flushes it to disk (sync_binblog=1 ensure durability)
+    - Then innoDB writes the commit record into the redo log (`innodb_flush_log_at_trx_commit=1` ensure durability)
+    - Only after both are persisted, the transaction is considered commited
+    ```
+    This way:
+    - If MySQL crashes after prepare but before binlog flush, InnoDB recovery will roll back the prepared transaction.
+    - If crash happens after binlog flush but before redo log commit, recovery sees a “prepared but not committed” transaction in InnoDB → it can replay commit using the binlog (binlog is authoritative).
+    ```
+## 深入理解Mysql索引底层数据结构与算法 2025-09-29
+- How is MySQL storage engine implemented? (MYISAM, InnoDB)
+  - **Binary Search Tree**: logN time, but may degrade to O(N) due to how it is built (becomes linked list for steady increasing sequence)
+  - **Red Black Tree**: Red black tree solves the previous problem because it is always self-balancing, but there are no ways for us to know the height: `h` of the tree. The height `h` determines how fast we can find our data.
+  - **B-Tree**: B Tree solves the previous problem by putting, not one, but multiple index + data into each tree-node. Each index is sorted in ascending order, and we can control the height of the tree very easily. At the the non-leaf node, we use Binary Search algorithm to quickly identify the index/range of index, and then retrieve data.
+  - **B+ Tree**: (innodb implementation)
+    - For B tree it is not very good for range query/
+    - so B+ tree, we put extra index (redundant index) and place all data into leaf-node. All leaf node are connected using double pointers, so we can quickly retrieve data for range query. 
+    - **Clustered index**, index are together with data in leafnode
+- Composite index
+  - **THE ORDER** of column in the index matters!! Because when we query, we query from the left!!
+- **Notable Interview Questions**
+  - "Why is it recommended for MySQL tables to have a *Int* type primary key that is also *mono increasing* ?
+    ```
+     An integer type is easier to compare than varchar.
+     Auto increasing because it is more efficient to add data to B+ tree that way. If the index is not mono-increasing, B+ tree will have to do self-balancing, and that affects performance. 
+    ```
+  - "Why does our secondary index refer to primary index in its leaf nodes, instead of the actual data?"
+    ```
+     This is for cost concerns. It is costly to have multiple copies of the same data in SSD.
+     Also if we were to have more copies of the same table, it is really hard to coordinate updates. This is the consistency concern. 
+    ```
