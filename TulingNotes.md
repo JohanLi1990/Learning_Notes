@@ -16,6 +16,7 @@
   - [JDK17的GC调优策略 2025-09-26](#jdk17的gc调优策略-2025-09-26)
   - [全面理解Mysql架构 2025-09-28](#全面理解mysql架构-2025-09-28)
   - [深入理解Mysql索引底层数据结构与算法 2025-09-29](#深入理解mysql索引底层数据结构与算法-2025-09-29)
+  - [Explain详解与索引优化最佳实践](#explain详解与索引优化最佳实践)
 
 
 ## 全面理解JVM
@@ -117,7 +118,7 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
    - vectorization, 
    - **Escape Analysis** -> **Scalar Replacement(-XX:+EliminateAllocation)** + **Stack Allocation**, 
    - lock elision
-   - loop unrolloing: fewer branch instructions, easier to spot vectorization opps (SIMD)
+   - loop unrolling: fewer branch instructions, easier to spot vectorization opps (SIMD)
 
 ## Summary for last 5 days
 1. **Compilation (outside JVM)**
@@ -344,3 +345,27 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
      This is for cost concerns. It is costly to have multiple copies of the same data in SSD.
      Also if we were to have more copies of the same table, it is really hard to coordinate updates. This is the consistency concern. 
     ```
+## Explain详解与索引优化最佳实践
+- Important Points:
+  - Type Column: system > const > eq_ref > ref > range > index > ALL, you need to try optimizing your query to `ref`
+  - possible_keys vs keys column. 
+  - we can use key_len to calculate what are the columns used in the index search.
+  - In Extra column, if `Using Tempororary` is seen, we need to optimize it.
+- Best Practices:
+  - Full value matching, for **every column in the composite index**
+  - **LeftMost Prefix Rule**
+  - **Do not** apply functions on columns:
+    ```sql
+      EXPLAIN SELECT * FROM employees WHERE name = 'LiLei';
+      EXPLAIN SELECT * FROM employees WHERE left(name,3) = 'LiLei';
+    ```
+  - Storage engine cannot use any conditions on the right of a range query
+    ```sql
+    EXPLAIN SELECT * FROM employees WHERE name= 'LiLei' AND age = 22 AND position ='manager';
+    <!-- Cnanot use positions -->
+    EXPLAIN SELECT * FROM employees WHERE name= 'LiLei' AND age > 22 AND position ='manager'; 
+    ```
+  - BE specific, use Covering index
+  - Using `!`, or  `<>` or `not in`, `not exists` might lead to scanning `All` table. 
+  - `is null` or `is not null` **might** lead to `ALL` scanning.
+  - `%ABC` in `LIKE` will lead to `ALL` scanning, you should use `ABC%`
