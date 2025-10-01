@@ -17,6 +17,7 @@
   - [全面理解Mysql架构 2025-09-28](#全面理解mysql架构-2025-09-28)
   - [深入理解Mysql索引底层数据结构与算法 2025-09-29](#深入理解mysql索引底层数据结构与算法-2025-09-29)
   - [Explain详解与索引优化最佳实践](#explain详解与索引优化最佳实践)
+  - [MySql索引优化一](#mysql索引优化一)
 
 
 ## 全面理解JVM
@@ -369,3 +370,33 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Using `!`, or  `<>` or `not in`, `not exists` might lead to scanning `All` table. 
   - `is null` or `is not null` **might** lead to `ALL` scanning.
   - `%ABC` in `LIKE` will lead to `ALL` scanning, you should use `ABC%`
+
+
+## MySql索引优化一
+- Use Covering Index
+  - If you specify columns in your `SELECT` statements, and the columns selected are all in your composite index, then MySQL will definitely use the composite index, and that will improve performance. If you just put `*` in `SELECT`, mysql will have to do `double lookup` which hurts performance. 
+- `IN` and `OR` will only lead to index search when amount of rows are huge, if the amount of data is not alot, it might go for `ALL` type scanning.
+
+- `LIKE` is not like `>` range operator.
+  - `LIKE` will always use index, **Index Condition Pushdown** (> Mysql 5.6)
+  - do prefilter in secondary index first, before checking primary clustered index for the actual data. 
+
+- **Trace** tools for investigation
+  - You have to investigate Trace if you don't know why your index is not applied to your `SELECT` query.
+- `Order by` and `Group by` optimization
+  - Check the `Extra` column, did we use `fileSort` (no index when ordering) or `Using index condition`
+  - alway aim for `Using index` 
+  - `Using index` will happen, if `order by` condition satisfy the `left prefix principle`
+  
+- Two Algorithms to `filesort`: Single-Read Sort vs Two-Read Sort
+  - `<sort_key, additional_fields>` 
+    `<sort_key, packed_additional_fields>` Single Read
+  - `<sort_key, rowid>` Two-Read Sort
+  - Basically the choice of which is a result of how much buffer you have set in MySQL, if buffer is large you can do Single-Read Sort.
+- **Optimization techniques**
+  - Code first, index later
+  - Based on your sql query, build **Composite Index**
+  - Do not build single index on Column that has small distinct values. 
+  - Use **prefix** (e.g. `name(20)`) to build composite index, to reduce disk size usage. But this way you cannot use `order by` on the index.
+  - Prioritize `where` over `order`
+    - because this way we can quickly filter out rows, and that can reduce time for ordering
