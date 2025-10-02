@@ -18,6 +18,7 @@
   - [深入理解Mysql索引底层数据结构与算法 2025-09-29](#深入理解mysql索引底层数据结构与算法-2025-09-29)
   - [Explain详解与索引优化最佳实践](#explain详解与索引优化最佳实践)
   - [MySql索引优化一](#mysql索引优化一)
+  - [Mysql索引优化实战二](#mysql索引优化实战二)
 
 
 ## 全面理解JVM
@@ -400,3 +401,16 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Use **prefix** (e.g. `name(20)`) to build composite index, to reduce disk size usage. But this way you cannot use `order by` on the index.
   - Prioritize `where` over `order`
     - because this way we can quickly filter out rows, and that can reduce time for ordering
+
+## Mysql索引优化实战二
+- Paginated Query Optimization
+  - `select * from employees limit 10000, 10;` very inefficietn. it reads 10010 rows.
+  - `select * from employees where id > 90000 limit 5` is much more efficient because it uses index.
+  - when `order by` is involved:
+    - `select * from employees ORDER BY name limit 90000,5;` this query will not use index, becasue there are too many rows, no point using index.
+    - but if you do this: `select * from employees e inner join (select id from employees order by name limit 90000,5) ed on e.id = ed.id;`
+    you can force the order by and pagination to happen first, and then retrive the row with id. This way, less columns are returned when doing order by. so faster. 
+- Join Opitmization
+  - Nested Loop Join vs Blocked Nested Loop Join
+    - make sure small table drives big table.
+    - **index** the columns used after `on`
