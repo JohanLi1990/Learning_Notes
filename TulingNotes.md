@@ -19,6 +19,7 @@
   - [Explain详解与索引优化最佳实践](#explain详解与索引优化最佳实践)
   - [MySql索引优化一](#mysql索引优化一)
   - [Mysql索引优化实战二](#mysql索引优化实战二)
+  - [MySQL事务原理及优化](#mysql事务原理及优化)
 
 
 ## 全面理解JVM
@@ -414,3 +415,14 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Nested Loop Join vs Blocked Nested Loop Join
     - make sure small table drives big table.
     - **index** the columns used after `on`
+
+## MySQL事务原理及优化
+- Transaction nomrally has the four principles: ACID
+  - Read Uncommited: dirty read
+  - Read Commited: Non-repeatable read, phantom Read
+  - Repeatable Read: Phantom Read
+  - Serailizable
+- Locks and MVCC enables us to maintain ACID compliance while under heavy load.
+  - Optimistic (CAS) vs Pessimistic
+  - Shared lock vs X lock.
+  - Intention lock.
