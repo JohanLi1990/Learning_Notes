@@ -448,4 +448,4 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 - Summary:
   - Read View = defines what a transaction is allowed to see.
   - Undo version chain = stores the row’s history of changes.
-  - Together, they let each transaction read the right version of a row, ensuring consistency under concurrenc
+  - Together, they let each transaction read the right version of a row, ensuring consistency under concurrency
