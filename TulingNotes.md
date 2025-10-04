@@ -20,6 +20,7 @@
   - [MySql索引优化一](#mysql索引优化一)
   - [Mysql索引优化实战二](#mysql索引优化实战二)
   - [MySQL事务原理及优化](#mysql事务原理及优化)
+  - [Mysql锁机制与优化实践以及MVCC底层原理剖析](#mysql锁机制与优化实践以及mvcc底层原理剖析)
 
 
 ## 全面理解JVM
@@ -426,3 +427,25 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Optimistic (CAS) vs Pessimistic
   - Shared lock vs X lock.
   - Intention lock.
+
+## Mysql锁机制与优化实践以及MVCC底层原理剖析
+- Read lock (Shared lock) multiple query can view the same row at the same time no problem.
+- Write lock( exclusive lock) if update is not done, will block other locks:
+  - `select * from T where id=1 lock in share mode`
+- Intention lock: like a dog marking its terriroty. If a transaction is adding a shared / exclusive lock on the row, the transaction will also marke the table with `intention lock`. If anther transaction tries to add a table lock, it will not have to check every row. 
+`IS` and `IX`
+- Gap lock and Next-Kye locks, -- how mySql solves the phantom read problems
+- MVCC principles
+  - undo log will be created when multiple transactions modify the smae row of data. 
+  - Under RR, a readview will be generated the first time `Select` is run. and **it will not change until txn is finished**
+  - ReadView consist of `array of on-going transaction-ids` and `maxTransActionId`
+  - During a `Select`:
+    - If row `txnid` < minTrxId in array, data is visible.
+    - if row `txnid` > `max_id` txn does not exist
+    - if row `txnid` within `min_id` <= `max_id`
+      - if `txnId` in the array: on going, not visible
+      - else `txn` already committed, visible
+- Summary:
+  - Read View = defines what a transaction is allowed to see.
+  - Undo version chain = stores the row’s history of changes.
+  - Together, they let each transaction read the right version of a row, ensuring consistency under concurrenc
