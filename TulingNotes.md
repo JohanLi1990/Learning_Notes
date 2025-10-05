@@ -1,6 +1,4 @@
-# Tuling Notes
-
-- [Tuling Notes](#tuling-notes)
+- [性能优化-JVM-MYSQL](#性能优化-jvm-mysql)
   - [全面理解JVM](#全面理解jvm)
   - [类加载机制实在（升值加薪之旅）2025-09-17](#类加载机制实在升值加薪之旅2025-09-17)
   - [JVM内存模型深度剖析与优化 (JVM model Deep Analysis) 2025-09-18](#jvm内存模型深度剖析与优化-jvm-model-deep-analysis-2025-09-18)
@@ -21,7 +19,10 @@
   - [Mysql索引优化实战二](#mysql索引优化实战二)
   - [MySQL事务原理及优化](#mysql事务原理及优化)
   - [Mysql锁机制与优化实践以及MVCC底层原理剖析](#mysql锁机制与优化实践以及mvcc底层原理剖析)
+  - [Innodb底层原理与Mysql日志机制深入剖析](#innodb底层原理与mysql日志机制深入剖析)
 
+
+# 性能优化-JVM-MYSQL
 
 ## 全面理解JVM
 
@@ -29,7 +30,7 @@
   
 - Class loading mechanism (sandbox protection, cache + parent + bootstrap loader)
   - bytecode, exception table, miscellanous
-![JVM架构图](image.png)
+  - ![JVM架构图](image.png)
 
 - Garbage Collection (tools: arthas for diagnostic)
   - Java opts, -, -X, -XX
@@ -64,8 +65,7 @@
     - Note that for **Any** Custom ClassLoader, if you call `super.loadClass()`, you will inevitably trigger the default Parents Delegations in JDK, so all services in current directory that matches your class fullname will get loaded.
 
 ## JVM内存模型深度剖析与优化 (JVM model Deep Analysis) 2025-09-18
-- JVM Model: 
-  ![JVM Model](JVM_model.png)
+- JVM Model: ![JVM Model](JVM_model.png)
 
 - Runtime Data Areas: PC, Method Area (MetaSpace), Heap, Stack, Native Method Stack
 - For each method call there will be Stack Frame:
@@ -449,3 +449,33 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Read View = defines what a transaction is allowed to see.
   - Undo version chain = stores the row’s history of changes.
   - Together, they let each transaction read the right version of a row, ensuring consistency under concurrency
+
+## Innodb底层原理与Mysql日志机制深入剖析
+- What happened under the hood (step 1 to 8)
+  ![MySQL under the hood](./MySQL_InnoDB_lowerLevel.jpg)
+- Redo Log: (can be number of redo log files)
+  - write pos: write positions
+  - check point: the place before which you can write your data freely, if at check-point, then cannot write, must dump redolog to disk first before writing (move the check point)
+  -  **The write to disk strategy**
+     -  `innodb_flush_log_at_trx_commit` this condition controls when should we flush redo log onto disks.
+        -  if 0, never, relies on innoDB daemon thread to dump logs to disk (every 1s). Risking losing data.
+        -  if 1, always write to disk every time, low performance, but safe
+        -  if 2, only writes to page-cache. then relies on the aforementioned innoDB daemon thread to dump data to disk. if DB is down, data will not be lost, because whatever is in Page-Cache will be eventually synced to disk by `fsync`. But if OS is down, then we lose the data.
+- BinLog
+  - consists of multiple `mysql-binlog.xxxx` files, They are base64 encrypted data of past `update`, `insert`, `delete` statements on the database
+  - BinLog format: Statement (risk: master slave mismatch due to functions like `UUID()`, `SYSDATE()`), ROW (Copies every row, no master slave mismatch, but low performances), MIXED(dynamically choose which format to write binlog in)
+  - You can recover the DB using BinLog.  
+    ```bash
+      mysqlbinlog  --no-defaults --start-position=219 --stop-position=701 --database=test D:/dev/mysql-5.7.25-winx64/data/mysql-binlog.000009 | mysql -uroot -p123456 -v test
+      <!-- Use command line -->
+      mysqlbinlog  --no-defaults --start-datetime="2023-1-27 23:32:24" --stop-datetime="2023-1-27 23:34:23" --database=test D:/dev/mysql-5.7.25-winx64/data/mysql-binlog.000009 | mysql -uroot -p123456 -v test
+    ```
+    The premise of using binLog to recover DB is that you do periodic DB dump yourself.
+    ```bash
+      mysqldump -u root 数据库名>备份文件名;   #备份整个数据库
+      mysqldump -u root 数据库名 表名字>备份文件名;  #备份整个表
+
+      mysql -u root test < 备份文件名 #恢复整个数据库，test为数据库名称，需要自己先建一个数据库test
+
+    ```
+
