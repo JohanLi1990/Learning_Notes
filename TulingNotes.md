@@ -20,6 +20,7 @@
   - [MySQL事务原理及优化](#mysql事务原理及优化)
   - [Mysql锁机制与优化实践以及MVCC底层原理剖析](#mysql锁机制与优化实践以及mvcc底层原理剖析)
   - [Innodb底层原理与Mysql日志机制深入剖析](#innodb底层原理与mysql日志机制深入剖析)
+  - [Mysql全局优化与Mysql 8.0\&Mysql9.0新特性详解](#mysql全局优化与mysql-80mysql90新特性详解)
 
 
 # 性能优化-JVM-MYSQL
@@ -479,3 +480,32 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 
     ```
 
+## Mysql全局优化与Mysql 8.0&Mysql9.0新特性详解
+- New Descending order index in innodb engine
+  ```sql
+   explain select * from t1 order by c1,c2 desc;
+   <!-- The above sql query will use index instead of filesort -->
+  ```
+- No more `order by` default:
+  ```sql
+  select count(*),c2 from t1 group by c2;   --8.0版本group by不再默认排序
+  ```
+- Invisible index:
+  Trying to delete an index, but not sure what is the impact? set it to `invisible first`, if no other queries are impacted, we can delete it safely, else, we simply reverse the action and make it visible again.
+- Function Index:
+  - in MySQL 5 if we reference function in our Select statments, the query will not use index
+  - Therefore in MySQL 8, we start to have function index:
+  ```sql
+  create index func_idx on t3((UPPER(c2)));  --创建一个大写的函数索引
+  ```
+- innodb storage engine skip the lock:
+  ```sql
+  select * from t1 where c1 = 2 for update nowait;
+  select * from t1 for update skip locked;  --查询立即返回，过滤掉了第二行记录
+  ```
+- Extended thinking: why for many internet companies, they do not use `Foreign Key`, whereas in Banks, we use `FK` everywhere?
+  ```
+    In Oracle-based enterprise systems like UBS → FKs are essential for consistency and auditability.
+    In MySQL-based internet systems (esp. China) → FKs are avoided for scalability, sharding, and agility.
+    The difference is not “right vs wrong”, it’s a trade-off between data integrity and distributed scalability.
+  ```
