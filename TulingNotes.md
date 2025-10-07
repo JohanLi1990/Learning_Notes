@@ -21,6 +21,7 @@
   - [Mysql锁机制与优化实践以及MVCC底层原理剖析](#mysql锁机制与优化实践以及mvcc底层原理剖析)
   - [Innodb底层原理与Mysql日志机制深入剖析](#innodb底层原理与mysql日志机制深入剖析)
   - [Mysql全局优化与Mysql 8.0\&Mysql9.0新特性详解](#mysql全局优化与mysql-80mysql90新特性详解)
+  - [MySQL 8.0 主从复制原理分析与实战](#mysql-80-主从复制原理分析与实战)
 
 
 # 性能优化-JVM-MYSQL
@@ -509,3 +510,31 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     In MySQL-based internet systems (esp. China) → FKs are avoided for scalability, sharding, and agility.
     The difference is not “right vs wrong”, it’s a trade-off between data integrity and distributed scalability.
   ```
+
+## MySQL 8.0 主从复制原理分析与实战
+- What is Replication: Copying data from SOURCE(Master) to REPLICA(Slave)
+  - Replication Algorithm relies on State machines (Snapshot + Binlog)
+- Different Replication Technique:
+  - Async
+  - Semisynchronous Replication (feels like Kafka and Redis), SOURCE relies on ACK to decide when to finish a transactions
+- Different approach to replication:
+  - Using binlog, 
+    - very hard to synchronize SOURCE and REPLICA if there is a problem
+    - have to manually find the position, and skip errors. If the errors skipped are not trivial, we will have data mismatch.
+  - Using GTID (eaiser, based on Global Transaciton ID)
+    - SOURCE calculates difference in GTID between itself and REPLICA
+    - then write the differences to relay log in REPLICA
+  - **MySQL GROUP Replication (MGR)** (best approach)
+    - based on PAXOS protocol. GROUP write (atomic and consistent), instead of SOURCE async write to REPLICA. 
+    - it lacks the router to tell client which node is accessible, that is why we need *innoDB cluster*
+    - Single Primary vs Multi Primray
+  - Extended Thinking: *why do we need XCOM plugins for MGR? why cannot just append to binLog, and use binlog to ensure Global orders?*
+
+    | Question                                  | Answer                                                                                              |
+    |-------------------------------------------|------------------------------------------------------------------------------------------------------|
+    | Why not just append to binlog?            | Because binlog has only *local ordering*, not *global* ordering.                                    |
+    | Why do we need XCom?                      | To reach quorum agreement on the *next transaction order*, ensuring atomic, consistent replication. |
+    | What does XCom provide that binlog can’t? | Leader election, total order broadcast, quorum-based commit, and automatic view changes.            |
+    | Is XCom storing the data?                 | No — it’s deciding the *order* in which data is written locally.                                    |
+  
+    for Single Writer many reader, binlog is okay. But for multiprimary we are screwed because there is no global order.
