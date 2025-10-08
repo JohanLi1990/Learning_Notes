@@ -22,6 +22,7 @@
   - [Innodb底层原理与Mysql日志机制深入剖析](#innodb底层原理与mysql日志机制深入剖析)
   - [Mysql全局优化与Mysql 8.0\&Mysql9.0新特性详解](#mysql全局优化与mysql-80mysql90新特性详解)
   - [MySQL 8.0 主从复制原理分析与实战](#mysql-80-主从复制原理分析与实战)
+  - [Mysql8.0高可用集群架构实战](#mysql80高可用集群架构实战)
 
 
 # 性能优化-JVM-MYSQL
@@ -538,3 +539,12 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     | Is XCom storing the data?                 | No — it’s deciding the *order* in which data is written locally.                                    |
   
     for Single Writer many reader, binlog is okay. But for multiprimary we are screwed because there is no global order.
+
+## Mysql8.0高可用集群架构实战
+- Inno DB cluster architecture:
+  ![innodb cluster](innodb.png)
+
+  - Use MySQL shell to for admin work
+  - Use MySQL router for client app connection.
+  - If primary node is down, cluster will automatically elect a new primary
+- InnoDB replicaSet: not very useful, no automatic failover, manual failover
