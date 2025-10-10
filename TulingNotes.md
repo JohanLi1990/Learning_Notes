@@ -23,6 +23,11 @@
   - [Mysql全局优化与Mysql 8.0\&Mysql9.0新特性详解](#mysql全局优化与mysql-80mysql90新特性详解)
   - [MySQL 8.0 主从复制原理分析与实战](#mysql-80-主从复制原理分析与实战)
   - [Mysql8.0高可用集群架构实战](#mysql80高可用集群架构实战)
+- [分布式专题](#分布式专题)
+  - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
+- [源码专题](#源码专题)
+  - [How is a bean constructed](#how-is-a-bean-constructed)
+  - [AOP](#aop)
 
 
 # 性能优化-JVM-MYSQL
@@ -548,3 +553,39 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Use MySQL router for client app connection.
   - If primary node is down, cluster will automatically elect a new primary
 - InnoDB replicaSet: not very useful, no automatic failover, manual failover
+
+
+
+# 分布式专题
+## Redis核心数据结构实战+服务搭建
+- How to set up redis cluster
+  - redis master slave replication (kinda like mysql 1 master 2 slave)
+  - sentinels (usually multiples and odd number) usually used together with one master + multiple slave topologies
+  - clusters: multiple master + sharding, automatic failover without needing sentinel
+  ```
+    Redis replication is asynchronous, so:
+    When the master (redis-1) fails,
+    The replica (redis-4) might be slightly behind,
+    Any write that was acknowledged by redis-1 but not yet replicated to redis-4 is lost.
+    ➡️ Redis Cluster does not guarantee zero data loss during failover.
+  ```
+- Core Redis Datastructure:
+  - String, `help @string`, `SETNX` (good for distributed lock)
+  - Hash, `help @hash`
+  - LIST, it is a deque, `BRPOP` can be usedas blocking queue. 
+  - SET, just normal set (lucky draw, *like button*, *unlike button*)
+    - `SADD like:[msg-id] [user-id]`
+    - `SREM like:[msg-id] [user-id]`
+    - users who likes: `SMEMBERS like:[msg-id]`
+    - number of users who likes: `SCARD like:[msg-id]`
+  
+# 源码专题
+## How is a bean constructed
+- scan -> BeanDefinitionMap
+- instantiate using reflection, using no-args constructors
+- initialization (via PostConstruct)
+- preDestroy (run destroy algorithms)
+
+## AOP 
+- JDKproxy : via interface/implements
+- CGLib: via extends/inheritence
