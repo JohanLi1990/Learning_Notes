@@ -578,7 +578,24 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - `SREM like:[msg-id] [user-id]`
     - users who likes: `SMEMBERS like:[msg-id]`
     - number of users who likes: `SCARD like:[msg-id]`
-  
+  - ZSET: ScoreBoard / Hot Search/ Trending Topic
+    - `ZINCRBY hotNews:20190819 1 Capture-Capitol`
+    - `ZREVRANGE hotNews:20190819 0 9 WITHSCORES`
+    - `ZUNINOSTORE hotNews:20190813-20190819 7`
+  - BITMAP: Bloom Filter + 签到
+    - Daily punch in : `SETBIT dailycheck:1 100 1` user-1 checked-in on day 100
+    - Count the numebr of dailychecks `BITCOUNT dailycheck:1`
+    - Advantage: fast, performant, memory efficient
+  - HyperLogLog (HLL): a probablistic datastructure for estimating cardinals of a set
+    - extremly performant, use constant space (12kb) for upto 2^64 items. with an error rate of 0.81%
+    - [hyperlog introduction](https://antirez.com/news/75)
+  - GEO: Location servies, check the distance from real longitude and lattitude locations
+  - STREAM: Redis MQ, not widely used, offers blocking queue + pub/sub
+  - SpringBoot + rdis:
+    - Becareful of your serializers, your serializer may transform your key and value into something else.
+    - Define your own serializer in `RedisTemplate` if necessary.
+
+
 # 源码专题
 ## How is a bean constructed
 - scan -> BeanDefinitionMap
