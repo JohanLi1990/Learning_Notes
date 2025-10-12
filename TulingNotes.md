@@ -25,6 +25,7 @@
   - [Mysql8.0高可用集群架构实战](#mysql80高可用集群架构实战)
 - [分布式专题](#分布式专题)
   - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
+  - [深入理解Redis线程模型](#深入理解redis线程模型)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -594,6 +595,27 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - SpringBoot + rdis:
     - Becareful of your serializers, your serializer may transform your key and value into something else.
     - Define your own serializer in `RedisTemplate` if necessary.
+
+## 深入理解Redis线程模型
+- Intro
+  - Redis at 2024: not just a cache but a DB ecosystem.
+  - Mostly single threaded but there are other threaded operations such as UNLINK, slow IO accesses... refer to redis.conf (~/redis/redis.conf)
+  - Highly performant becuase it is using epoll for io-multiplexing, so that one thread can respond to many socket connection request. 
+- Redis Transaction
+  - Not fully Atomic perse, MULTI is more like  group transactions, not atomic transactions like mysql. 
+  - if one op fails, the others **still gets executed!!** DANGEROUS.
+  - so how do we ensure atomicity? using watch
+    - `Watch key2`
+    - `MULTI` start transactions
+    - Any other clients modified `key2`
+    - When doing `EXEC` current transaction will fail.  Try again. 
+  - If server fails during a redis transaction, then AOF will have mismatch with data, thne next time redis server starts, there will be errors. You will need reds-check-aof to repair AOF. 
+- Pipeline
+  - e.g. `cat command.txt | redis-cli -a <your password>`
+  - save RTT (round trip time)
+  - the same as `printf "AUTH <yourpassword>\r\nPING\r\nPING\\r\n" | nc localhost 6379` where `nc localhost 6379` basically is what redis-cli do. 
+  - Do batch processing of data during non-peak hours. 
+
 
 
 # 源码专题
