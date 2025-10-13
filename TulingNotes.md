@@ -615,7 +615,8 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - save RTT (round trip time)
   - the same as `printf "AUTH <yourpassword>\r\nPING\r\nPING\\r\n" | nc localhost 6379` where `nc localhost 6379` basically is what redis-cli do. 
   - Do batch processing of data during non-peak hours. 
-
+- LUA scripts (used a lot for distributed lock)
+- Redis function: a convenient way to call Lua Script.
 
 
 # 源码专题
