@@ -26,6 +26,7 @@
 - [分布式专题](#分布式专题)
   - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
   - [深入理解Redis线程模型](#深入理解redis线程模型)
+  - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -618,7 +619,47 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 - LUA scripts (used a lot for distributed lock)
 - Redis function: a convenient way to call Lua Script.
 
-
+## Redis进阶二之Redis数据安全性分析
+- Redis Benchmark: `redis-benchmark`
+- Redis persistence in depth:
+  - [link](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
+  - RDB + AOF
+    - AOF is event based, RDB is snapshot
+    - AOF log, if corrupted, server will not start.
+- Redis Master + Replica practicals
+  - [official docs](https://redis.io/docs/latest/operate/oss_and_stack/management/replication/)
+  - *use replicaof to make a redis instance a copy of another redis server*
+  - Master receives writes, replicate exact copy
+  - Downside: replication will take time, hit performance
+    - Also if master is down, manual selection of master. This why we have Sentinel cluster
+- Sentinel Cluster
+  - [official docs](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/)
+  - monitor + quorum: if I found out one master is down, `S_DOWN = 1`, however if `>=quorum` amount of sentinels believe master is down, then `O_DOWN = 1`, then we do failover. (Raft Algorithm, similar to the PAXOS used in MYSQL Group Replication Set)
+  - Downside, when master ip changes, client need to change their write destination too.
+  - Data not safe, Data may get clost
+- Redis Cluster
+  - ![Cluster](image-1.png)
+  - Gossip protocol
+  - Solves 3 problems:
+    - clients have to change their write ip if master changes
+    - when server side has a lot of data, single replication set cannot handle.
+    - when master is down, **automatic failover** for HA.
+    - Redis has 16384 slot, every key will be `HashSlot = CRC16(key) mod 16384` and distributed to a hashslot
+    - Depending on how many masters you have, this 16k slots will be distributed evenly across the shards (number of masters).
+    - if one shard is down, *the cluster* through gossip will have to first come to consensus that it is down, and then promotes slave to master. Since slave already have all the data no need to mirgrate any buckets, 
+    - if Redis cluster has to rebalance, Redis uses `MIGRATE` to copy keys slot by slot to new master nodes, then updates cluster metadata.
+    - **NOTE:** you **cannot** do `mset k1 v1 k2 v2`, because all those keys might be on different Redis node, and doing so basically will require **distributed transaction** which complicates things, so it is forbidden.
+    - Gossip protocol is not strong consistency, it is eventual consistecy.
+    - Questions, how does Redis Cluster ensure failure detection and automatic failover?
+      ```
+      🧩 Short Answer
+      🧠 Redis Cluster uses a Gossip protocol for cluster state propagation,
+      and a majority-vote mechanism (not full Raft) for failover decision.
+      It’s not Raft or Paxos — but Raft-like in spirit (majority agreement), combined with Gossip-based failure detection.
+      ```
+    - Redis Enterprise even safer.
+    - Redis Cloud, part DB, part cache
+  
 # 源码专题
 ## How is a bean constructed
 - scan -> BeanDefinitionMap
