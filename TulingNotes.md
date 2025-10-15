@@ -27,6 +27,7 @@
   - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
   - [深入理解Redis线程模型](#深入理解redis线程模型)
   - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
+  - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -659,6 +660,24 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
       ```
     - Redis Enterprise even safer.
     - Redis Cloud, part DB, part cache
+
+## 大厂生产级Redis高并发分布式锁实战
+**NOTE: Best live demo on redis I have ever seen**
+- Demostrate, at the source code level how *Redisson* helps us implement a distributed lock.
+- Conceptually it is very straight forward, but implementation is very smart and well thought off.
+  - Every thread use redisson lock to try `hsetnx` a redis key.
+  - if not able to acquire the lock (via semaphore) , the thread gets parked (in waiting state)
+  - if able to subscribe, it will return
+  - when the thread holding the lock finishes, it will `unlock`
+    - delete the `key` from redis
+    - also updating in a `redis_lock_pub_sub` channel, that current thread has relinquished the lock
+  - All waiting threads' watchdogs/monitor threads subscribing to the channel gets notified of this event, and subsequently released the lock on semaphore. 
+  - All waiiting threads will start competing for this semaphore (unfair lock)
+  - **you need to watch the video again, and practice on your local!!!**
+- *worthy mentioning* : Valkey is an opensource alternatives to Redis8, and it is free, and has a growing communities using it, and can be applied to many platforms. 
+- You need good understanding of JUC. Some complementary knowledge:
+  - Semaphore tryacquire(timeout) will put current threads in `WAITING` state, which waits for `SIGNAL` to wake up. In a `BLOCKED` thread, thread is waiting for a `LOCK` to be available. 
+  - Semaphore tryacquire basically is using `CAS` in `AbstractSynchronizedQueue`. You need to read up on concurrency courses.
   
 # 源码专题
 ## How is a bean constructed
