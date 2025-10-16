@@ -28,6 +28,7 @@
   - [深入理解Redis线程模型](#深入理解redis线程模型)
   - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
   - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
+  - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -678,7 +679,41 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 - You need good understanding of JUC. Some complementary knowledge:
   - Semaphore tryacquire(timeout) will put current threads in `WAITING` state, which waits for `SIGNAL` to wake up. In a `BLOCKED` thread, thread is waiting for a `LOCK` to be available. 
   - Semaphore tryacquire basically is using `CAS` in `AbstractSynchronizedQueue`. You need to read up on concurrency courses.
-  
+
+## 一线大厂高并发缓存架构
+- Basic Redisson PubSubLock, 
+- Big Prom scenario:
+  - Use segment locking, product_101_1 : 100, product_101_2:100 ... product_101_10:100, 
+  - Why do we need re-entrant locking? So that we can do read and write separation, i.e. RedissonReadWriteLock
+- Cach Breakdown: Data missing in cache, resulting in large amount of request at DB side
+  - influencer effects
+  - backend DCL, but this way we also blocks requests concerning other products
+  - Better alternative : Redisson lock,  
+- Cache Penetration: Data does not exist in cache nor DB, 
+  - DDos attack
+  - Preventions: use API rate limiter, put an `EMPTY_PRODUCT` inside redis. 
+- What happens if your redis cache and your DB have mismatches? how do you prevent that?
+  - We have this `Read and Update` process: check the DB, and then update cache
+  - this has to be atomic, 
+  - so we continue to use Distributed lock.
+- How to optimize the locks used in above 2 scenarios?
+  - When we have *Lots of read, little write*, use RedissonReadWriteLock.
+  - For the influence effects, using readwrite lock might not be able to do much better, because using distributed lock we already have quite a performance. However we can use `tryLock(ttl)` for better performances, i.e. after `TTL` time, all the waiting threads give up and start reading from cache. in this case we assume the thread which acquired the lock successfully the 1st time, has already completed populating the cache. **But that may not be true**
+- How to deal with Super Influence / Hot Trending event
+  - Millions of fans will start searching for this event/news/product...
+    - Redis cannot take such concurrency... hangs, webapp hangs, frontend hangs... 
+    - System in failure mode.
+    - Cache Avalanches
+  - Preventions: Use multi level caches
+    - use JVM internal caches, such as ConcurrentHashMap. JVM internal caches can take millions of concurrent request. super fast. 
+    - What happens when there is a write request? use Redis pubsub (i.e. MQ)
+    ![mq](multilevelCache.drawio.png)
+    - But then you have this *eventual consistency* trade off.
+- In BAT, what they do is they have a separate system called `Hot Spot system` (热点系统)
+  - By (e.g. via AOP) intercept all actions on Redis, they analyze new `host spot` event, and update frontend cache accordingly
+  - so that response is faster. 
+  - Big data related
+
 # 源码专题
 ## How is a bean constructed
 - scan -> BeanDefinitionMap
