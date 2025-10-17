@@ -29,6 +29,7 @@
   - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
   - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
   - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
+  - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -713,6 +714,30 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - By (e.g. via AOP) intercept all actions on Redis, they analyze new `host spot` event, and update frontend cache accordingly
   - so that response is faster. 
   - Big data related
+
+## Redis缓存设计与性能优化
+- Multilevel cache in depth:
+- Cache penetrations: 
+  - soln1: empty-cache with ttl.
+  - bloom-filter, intercept ddos.
+- Cache avalances:
+  - Sentinel or Hystrix circuit breaker. 
+  - rate limiting, i.e. only allow 80000 concurrent request.
+- Cache and DB write mismatch: use RedissonLock
+  - Better: use Redisson ReadWriteLock
+  - **Note**: data you put in redis-cluster should be those that do not require strong consistency, if you need strong consistency, just use DB. If DB performance cannot make it, use Redis as temproary storage, and then asyn writes to DB.
+- Best practices:
+  - Keys keep it short
+  - value keep it small, please no `bigkey`, e.g. huge set of string.
+    - Processing bigkey will take too much time, cause blocking
+  - do not `del` key from set
+  - Optmize big key by using segment lock
+- Redis Client best practices (e.g. Jedis)
+  - maxTotal, maxIdle, minIdle
+  - set maxTotal = maxIdle, and warm up the `redis-client` thread pool.
+- Redis eviction policy
+  - normal scenarios LRU is enough
+  - however, if encountered with hotspot scenario, LFU could be better. 
 
 # 源码专题
 ## How is a bean constructed
