@@ -30,6 +30,7 @@
   - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
   - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
   - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
+  - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
 - [源码专题](#源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -738,6 +739,19 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 - Redis eviction policy
   - normal scenarios LRU is enough
   - however, if encountered with hotspot scenario, LFU could be better. 
+
+## 京东热点缓存探测系统JDhotkey架构剖析
+- Very lightweight, elegant solution for hotkey detection. 
+- Built on ***Netty***, long http connection. 
+- Source [Code](https://gitee.com/jd-platform-opensource/hotkey/blob/master-v0.0.4/README.md)
+- Architect [Blog](https://mp.weixin.qq.com/s/xOzEj5HtCeh_ezHDPHw6Jw)
+- Architecture:
+  ![jd hotkey](JDHotKey.png)
+
+- Key takeaways:
+  - Netty `SO_KEEPALIVE`, long connection
+  - Client will be referenced by actual server
+  - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
 # 源码专题
 ## How is a bean constructed
