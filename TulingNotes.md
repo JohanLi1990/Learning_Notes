@@ -24,6 +24,7 @@
   - [MySQL 8.0 主从复制原理分析与实战](#mysql-80-主从复制原理分析与实战)
   - [Mysql8.0高可用集群架构实战](#mysql80高可用集群架构实战)
 - [分布式专题](#分布式专题)
+  - [Pre-requisite, setting up of VMWare workstations](#pre-requisite-setting-up-of-vmware-workstations)
   - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
   - [深入理解Redis线程模型](#深入理解redis线程模型)
   - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
@@ -31,9 +32,15 @@
   - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
   - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
   - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
-- [源码专题](#源码专题)
+- [并发编程](#并发编程)
+  - [Concurrency and Multithreading 101](#concurrency-and-multithreading-101)
+  - [Future \& CompletableFuture 实战](#future--completablefuture-实战)
+  - [ThreadLocal详解](#threadlocal详解)
+  - [深入理解CAS和Atomic原子类操作详解](#深入理解cas和atomic原子类操作详解)
+- [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
+- [](#)
 
 
 # 性能优化-JVM-MYSQL
@@ -560,9 +567,55 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - If primary node is down, cluster will automatically elect a new primary
 - InnoDB replicaSet: not very useful, no automatic failover, manual failover
 
-
-
 # 分布式专题
+
+## Pre-requisite, setting up of VMWare workstations
+
+- VMwareWorkstations pro free for personal use
+- Download Ubuntu LTS 24.04
+  - allow both `Install OpenSSH server` and `allow password authentication over SSH`
+- Configure three network adapters
+  - NAT: for internet access
+  - Host-Only: talk to other VM directly on private network, i.e. my old laptop
+    - Disable DHCP
+  - Bridged: for direct access via other laptops within the same network. 
+  
+  node 0
+  
+  ```yml
+  network:
+    version: 2
+    ethernets:
+      ens33:
+        dhcp4: true
+        dhcp4-overrides:
+          route-metric: 200
+      ens37:
+        dhcp4: false
+        addresses: [192.168.88.10/24]
+        nameservers:
+          addresses: [1.1.1.1, 8.8.8.8]
+      ens38:
+        dhcp4: false
+        addresses: [192.168.10.31/24]
+        routes:
+          - to: 0.0.0.0/0
+            via: 192.168.10.1
+        nameservers:
+          addresses: [192.168.10.1, 8.8.8.8]
+        dhcp-identifier: mac
+        dhcp4-overrides:
+          route-metric: 100
+  ```
+  
+  - After updating yml file, do `sudo netplan apply`
+  - SSH status should be up
+    - check  `sudo systemctl status ssh`
+    - if not `sudo systemctl enable --now ssh`
+  - ![host-only-config](./Host-Only.PNG)
+- After configuring everything, create linked clones
+
+
 ## Redis核心数据结构实战+服务搭建
 - How to set up redis cluster
   - redis master slave replication (kinda like mysql 1 master 2 slave)
@@ -753,7 +806,223 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
   - Client will be referenced by actual server
   - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
-# 源码专题
+# 并发编程
+
+## Concurrency and Multithreading 101
+
+- Context Switching:
+  - Save (push) current process’s register values into its PCB (Process Control Block).
+    - Program counter, stack pointer, general registers, etc.
+  - Load (pop) the next process’s registers from its PCB into the CPU.
+  - CPU resumes execution exactly from where that process left off.
+  - So during context switching, the OS essentially swaps out the register state to simulate as if each process “owns” the CPU exclusively.
+
+- Java is Born with concurrency, you can use `ThreadMXBean.dumpAllThreads(false, false)` to see all Threads
+- Two ways to create threads: `Thread` & `Runnable`
+- Thread states
+  CPU perspective
+  ```
+    ┌────────────┐
+    │    New     │
+    └──────┬─────┘
+           │ admitted
+           ▼
+    ┌────────────┐
+    │   Ready    │◄──────────┐
+    └──────┬─────┘           │
+           │ dispatched      │
+           ▼                 │
+    ┌────────────┐     I/O wait / sleep
+    │  Running   │───────────────►┌────────────┐
+    └──────┬─────┘                │  Blocked   │
+           │ time slice over      └──────┬─────┘
+           ▼                             │ event complete
+    ┌────────────┐                      │
+    │ Terminated │◄─────────────────────┘
+    └────────────┘
+
+  ```
+
+  Java perspectives
+  ```
+   ┌────────────┐
+   │    NEW     │
+   └─────┬──────┘
+         │ start()
+         ▼
+   ┌────────────┐
+   │  RUNNABLE  │◄───────────-─┐
+   └─────┬──────┘              │
+         │ enters synchronized │
+         ▼                     │
+   ┌────────────┐              │
+   │  BLOCKED   │              │
+   └─────┬──────┘              │
+         │ gets lock           │
+         ▼                     │
+   ┌────────────┐              │
+   │  RUNNABLE  │──────────────┘
+   └─────┬──────┘
+         │ sleep(), wait(), join()
+         ▼
+   ┌───────────────┐
+   │WAITING /      │
+   │TIMED_WAITING  │
+   └─────┬─────────┘
+         │ notify(), timeout, interrupt
+         ▼
+   ┌────────────┐
+   │  RUNNABLE  │
+   └─────┬──────┘
+         │ run() finished
+         ▼
+   ┌────────────┐
+   │TERMINATED  │
+   └────────────┘
+
+  ```
+
+- `sleep` vs `yield`
+  - `sleep` : `RUNNABLE` -> `TIMED_WAITING`
+  - `yeild`: `RUNNABLE(OS_running)` -> `RUNNABLE(OS_Ready)`, no context swithcing.
+  - Both mechanism requires no locks to release control of current cpu.
+
+- Thread Priority
+- `join()`: Blocked, waiting for all threads to finish
+
+- Thread stoping mechanism: let it run naturally or interrupt, and catch interruption, no `stop()`
+- Interrupting `sleep` `wait` `join`:
+  - all the above methods will put the caller thread in `BLOCKED` state, 
+  - interrrupting `BLOCKED` state will remove the interrtupted state. 
+- Cooperative Thread Scheduling vs Preemptive Thread Scheduling
+  - Java using preemptive model
+- Java Thread model:
+  - One Java thread == One os thread (Kernel Level Thread)
+  - thread scheduling is totally up to OS scheduler
+  - However after 21, there is Virtual Thread (which is User mode thread)
+- Interthread Communication
+  - Java `PipedOutputStream` (byte), `PipedInputStream` (byte), `PipedReader`(char), `PipedWriter`(char), replaced by `BlockingQueue`. Early java way to stream data between thread, block one thread until the other side consumes.
+  - volatile (lightest weight communication meachanism)
+    - Happens Before
+    - MESI protocol (hard ware level)
+    - load barrier and store barrier: if you want to read, you have to fetch from main memory; if you want to write, you force all cached writes to main memory.  
+    - However this in reality:
+      - might result in false sharing: 2 hot variables on different cores but within the same 64 bytes line -> every write causes invalidations and ping-pong (S -> I, E to M churn)
+        - Prefer counters like LongAdder
+      - Contention hot-spot: many cores writing the same line (constant invalidations, the line bounces between cores) 
+      - **Note: why volatile and atomicLong are vulnerable**:
+  
+      ```java
+            public class Counter {
+                  private final AtomicLong count = new AtomicLong(0);
+
+                  public void inc() {
+                        count.incrementAndGet();
+                  }
+            }
+      ```
+      
+    - Solution is LongAdder: using striped internal design, ecah thread will be assigned a bin (via hashing), and they only update that bin/cell. checkout `LongAdder`, `LongAccumulator` and `Striped64`
+
+
+## Future & CompletableFuture 实战
+
+- Future is API, implemtation is FutureTask.
+- But Future is limited, it cannot:
+  - Run multiple task in paralle.
+  - Run multiple tasks in chains 
+  - Combine multiple tasks
+  - Handle Exceptions
+  That is why we have **CompletableFuture**, it provides some sort of planning mechanism
+- Completable Future APIs:
+  ![CF Architect](CompletableFuture_Design.drawio.png)
+
+## ThreadLocal详解
+
+- Design principle: apply Immutablity to concurrency
+- Used for internal variables for each thread.
+- ThreadLocal vs Synchronized: Extra space for latency
+- ThreadLocal used in Spring (DB connections, so that we don't have to pass connection information whenever we call DAO)
+- ThreadLocal Design
+  - Each Thread owns a ThreadlocalMap,
+  - A ThreadLocalMap is `Map<WeakReference<ThreadLocal>, value>`
+  - We use `WeakReference` here because in our **Thread logic**, we definitely have a strong reference to the same `ThreadLocal` object.
+  - ThreadLocalMap is not a java 8 HashMap, it is a java 7 HashMap, It is using generic `Array` + `LinkedList` structure.
+- Under what circumstances would ThreadLocal cause memory leak?
+  - When we lose the strong reference in our code, we will **not likely** have any memory leak, because `ThreadLocal.expungStaleEntries` method
+  - When we still has access to the strong reference, and **thread is reused**, then we have a problem.
+  
+  ```java
+    static final ThreadLocal<byte[]> TL = new ThreadLocal<>();
+
+    ExecutorService pool = Executors.newFixedThreadPool(4);
+
+    for (int i = 0; i < 1_000_000; i++) {
+      pool.submit(() -> {
+        // Simulate request-scoped big object graph
+        TL.set(new byte[2 * 1024 * 1024]); // 2 MB
+        try {
+          // ... do work ...
+        } finally {
+          // BUG: forgot TL.remove();
+        }
+      });
+    }
+  ```
+
+  - Food for thought today: why Java requires child class to call `super()`, when parent does not have a default constructor(e.g. it only has parameterized constructors)
+  
+  ```plain
+    In Java, “object construction” means building real memory structure from top to bottom.
+    Leaving anything half initialized will result in memoy error that happens often in C++. 
+    So Java Designers forbid it explicitly from compile time to runtime. 
+    In JS/TS, it just means wiring prototype links — no real “super memory” to initialize.
+  ```
+
+## 深入理解CAS和Atomic原子类操作详解
+- Compare and Swap General
+  - Read + Modify + Write operations
+  - Supported by `Unsafe` (prior java 9) and `VarHandle` ( > java 9)
+  - Hardware level primitive that implements optimistic locking
+- Downside:
+  - CAS often works with while, if you cannot set value, while loop will increase CPU contention
+  - only can gurantee **one** atomic operation
+  - fails when there is **ABA** (vers.) problem, **ABA** is version of an object.
+- Resolutions:
+  - versioning with `AtomicStampedReference`
+- High Performance Atomic Types
+  - AtomicInteger
+  - `AtomicReference`: 
+    - Treiber Stack (lock free thread safe threads)
+    - Storing immutable state snapshots
+    - implment CAS on complex objects
+  - `AtomicReferenceFieldUpadter<T, R>`
+    - A reflection-based helper that lets you perform atomic CAS on a field inside an existing object, without wrapping it in an AtomicReference.
+    - Why not just use `AtomicReference`
+      - Because memory footprint and false sharing.
+      - Every AtomicReference is a full-fledged object → extra heap allocation and pointer indirection.
+      - But with AtomicReferenceFieldUpdater, you get zero wrapper objects — the field stays inline inside Foo.
+        So frameworks like java.util.concurrent use it for millions of small nodes without overhead.
+      - AtomicReference, each reference lives in its own separate object - random heap placement -> unpredicatable memory proximity.
+  - `LongAdder`/ `DoubleAdder`
+    - Uses `Cell[] cells` to manage hot contention (many thread writing on the same line) due to CAS
+    - Cells are created only when needed as it is large.
+    - Cells are resized twice if there are conten
+    - Each Cell is a `Striped64` impl, annotated with `@Contended`
+    - Hotspot JVM sees this annotation and automatically padd with bytes before and after the value so that it doesn't share a cache line with the next Cell object. This is done during **Java Object Layout Time**.
+    - The padding is not visible in Java fields or reflection, but it is visible to the memory allocator and GC. (Don't exist in byte code), you can observe it with `JOL`.
+    - in `Striped64.longAccumulate` there is constant checking for stale value `if (cells == cs)` to prevent race condition.
+  
+
+- **Extra thought**: what is the difference between `parkNanos(long nanos)` and `Thread.sleep(long milis)`
+  - park is like the mini semaphore that each thread owns. when you park, you set bit to 1, and thread goes to waiting. If you set to 0, thread becomes runnable. After `nanos` time, thread becomes runnable
+  - For `Thread.sleep` nothing wakes it up except interrupts. 
+  - Both block the current thread and make it ineligible for CPU scheduling.
+    - But: sleep() = dumb timer delay.
+    - parkNanos() = intelligent wait with extra unpark + interrupt control.
+
+
+# Spring源码专题
 ## How is a bean constructed
 - scan -> BeanDefinitionMap
 - instantiate using reflection, using no-args constructors
@@ -763,3 +1032,6 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 ## AOP 
 - JDKproxy : via interface/implements
 - CGLib: via extends/inheritence
+
+
+#
