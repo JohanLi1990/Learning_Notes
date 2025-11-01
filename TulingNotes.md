@@ -3,7 +3,7 @@
   - [类加载机制实在（升值加薪之旅）2025-09-17](#类加载机制实在升值加薪之旅2025-09-17)
   - [JVM内存模型深度剖析与优化 (JVM model Deep Analysis) 2025-09-18](#jvm内存模型深度剖析与优化-jvm-model-deep-analysis-2025-09-18)
   - [JVM对象创建与内存分配机制深度剖析 2025-09-19](#jvm对象创建与内存分配机制深度剖析-2025-09-19)
-  - [This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting.](#this-lesson-is-very-hardcore-there-are-alot-of-useful-informations-lesson-3-and-lesson-4-are-worth-revisiting)
+  - [This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock by default, so nothing ttions. Lesson 3 and lesson 4 are worth revisiting.](#this-lesson-is-very-hardcore-there-are-alot-of-useful-informa-xxeliminatelock-by-default-so-nothing-ttions-lesson-3-and-lesson-4-are-worth-revisiting)
   - [深⼊理解 JVM 执⾏引擎 2025-09-20](#深理解-jvm-执引擎-2025-09-20)
   - [Summary for last 5 days](#summary-for-last-5-days)
   - [垃圾收集器ParNew\&CMS与底层三色标记算法详解 (Tri-color marking) 2025-09-21](#垃圾收集器parnewcms与底层三色标记算法详解-tri-color-marking-2025-09-21)
@@ -37,6 +37,7 @@
   - [Future \& CompletableFuture 实战](#future--completablefuture-实战)
   - [ThreadLocal详解](#threadlocal详解)
   - [深入理解CAS和Atomic原子类操作详解](#深入理解cas和atomic原子类操作详解)
+  - [并发锁机制之深入理解synchronized](#并发锁机制之深入理解synchronized)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -132,8 +133,8 @@
   - run init method
 - Notable concepts: 
   - Pointer Compression (default in 64bit JVM, actually just left shift by 3 bits so we can reduce memory footprint), TLAB (Thread Local Allocation Buffer),
-  - JVM Stack allocation, escape analysis: stack allocation, scalar replacement, lock elision
-This lesson is very hardcore, there are alot of useful informations. Lesson 3 and lesson 4 are worth revisiting. 
+  - JVM Stack allocation, escape analysis: stack allocation, scalar replacement, lock elision (there is another hardware level lock elision which is chip dependent)
+This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock by default, so nothing ttions. Lesson 3 and lesson 4 are worth revisiting. 
 ---
 ## 深⼊理解 JVM 执⾏引擎 2025-09-20
  - Just In time Compiler, Interpreter + c1 compiler + c2 compiler.
@@ -142,8 +143,8 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
    - inline, 
    - vectorization, 
    - **Escape Analysis** -> **Scalar Replacement(-XX:+EliminateAllocation)** + **Stack Allocation**, 
-   - lock elision
-   - loop unrolling: fewer branch instructions, easier to spot vectorization opps (SIMD)
+   - lock elision (there is another hardware level lock elision which is chip dependent)
+   - loop unrolling: fewer branch instructions, easier to spot vectorization opps (SIMD)-XX:+EliminateLock by default, so nothing t
 
 ## Summary for last 5 days
 1. **Compilation (outside JVM)**
@@ -184,8 +185,8 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
 7. **JIT Compilation**
    - Hot methods compiled into native code:
      - **C1 (client compiler):** quick, lightweight optimizations.
-     - **C2 (server compiler):** deeper optimizations (inlining, escape analysis, lock elision, vectorization, etc.).
-   - Compiled code replaces interpreted execution.
+     - **C2 (server compiler):** deeper optimizations (inlining, escape analysis, lock elision (there is another hardware level lock elision which is chip dependent), vectorization, etc.).
+   - Compiled code replaces interpreted execution.-XX:+EliminateLock by default, so nothing t
 
 8. **Native Execution**
    - CPU executes optimized machine code directly.
@@ -1012,8 +1013,6 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - Hotspot JVM sees this annotation and automatically padd with bytes before and after the value so that it doesn't share a cache line with the next Cell object. This is done during **Java Object Layout Time**.
     - The padding is not visible in Java fields or reflection, but it is visible to the memory allocator and GC. (Don't exist in byte code), you can observe it with `JOL`.
     - in `Striped64.longAccumulate` there is constant checking for stale value `if (cells == cs)` to prevent race condition.
-  
-
 - **Extra thought**: what is the difference between `parkNanos(long nanos)` and `Thread.sleep(long milis)`
   - park is like the mini semaphore that each thread owns. when you park, you set bit to 1, and thread goes to waiting. If you set to 0, thread becomes runnable. After `nanos` time, thread becomes runnable
   - For `Thread.sleep` nothing wakes it up except interrupts. 
@@ -1021,7 +1020,107 @@ This lesson is very hardcore, there are alot of useful informations. Lesson 3 an
     - But: sleep() = dumb timer delay.
     - parkNanos() = intelligent wait with extra unpark + interrupt control.
 
+## 并发锁机制之深入理解synchronized
+- MESA-style Monitor in java: (`WaitSet`, `EntryList` + `cxq`, `owner`)
+  ```php
+  Thread arrives:
+  if (owner == null && CAS(owner, null, me)) return; // fast path
+  else {
+    push me onto _cxq;    // single CAS, no owner interaction
+    park();
+  }
 
+  Owner unlocks:
+  if (_EntryList empty) drain some/all of _cxq -> _EntryList (possibly reversing)
+    pick head from _EntryList as _succ
+    unpark(_succ)
+
+  notify(obj):
+    m = obj.monitor
+    if (m.owner != me) throw IllegalMonitorStateException
+    t = dequeue_one(m._WaitSet)
+    if (t != null) {
+      enqueue_front(t, m._EntryList)   // make it a candidate successor
+      // (HotSpot may also mark it so the unlock path will prefer it)
+    }
+
+  notifyAll(obj):
+    m = obj.monitor
+    if (m.owner != me) throw IllegalMonitorStateException
+    while (!empty(m._WaitSet)) {
+      t = dequeue_one(m._WaitSet)
+      enqueue_front(t, m._EntryList) // HOTSPOT source code(OpenJDK’s ObjectMonitor.cpp), but in JVM we don't gurantee that the most recent waiting thread gets picked
+    }
+  ```
+  - Use C++ ObjectMonitor, wrapped with OS platform monitor so as to use `mutex`:
+  ```c++
+    class ObjectMonitor {
+    public:
+        void*      _object;      // the associated Java object
+        Thread*    _owner;       // owning JavaThread
+        ObjectWaiter* _EntryList; // contenders waiting for lock
+        ObjectWaiter* _WaitSet;   // wait() callers
+        os::PlatformMonitor _lock; // OS-level condition/mutex primitive
+        ...
+    };
+  ```
+  the last line wraps the underlying platform mutex.
+  - current thread goes into `WaitSet`, when, as the owner of the monitor, the thread calls `obj.wait(...)`
+  - if you are not the owner, you go `IllegalMonitorStateException`
+  - cxq serves as a buffer zone, do one cas and goes to treiber stack, so that the monitor does not have to server **Thundering Herd**
+  - ![synchronized under the hood](monitor_cas_mutex.png)
+  - Visulization of transition:
+  ```
+    Thread A: enters synchronized(obj)
+      ↓  CAS mark word → thin lock → success
+
+    Thread B: enters synchronized(obj)
+      ↓  CAS fails (mark word points into A’s stack)
+      ↓  Inflate to ObjectMonitor
+            obj.mark = ptr(ObjectMonitor) | 10
+            ObjectMonitor._owner = A
+      ↓  Add B to EntryList
+      ↓  park() → futex_wait()  ← OS mutex comes into play
+
+    Thread A: exits synchronized(obj)
+      ↓  If EntryList not empty → unpark(B)
+      ↓  B wakes via futex_wake()
+      ↓  B acquires monitor → continues
+  ```
+
+- Optimization techniques for `Synchronized` (intrinsic lock, as opposed to normal lock like Reentrant lock) in HotSpot
+  - Lock Coarsening (Reduce number of ops to Lock and Unlock)
+  - Lock Elimination / Elision (there is another hardware level lock elision which is chip dependent)
+    - Done via Escape Analysis
+    - `-XX:+EliminateLock` by default, so nothing to adjust here. 
+  - CAS optimization, when thread contending for monitor, it uses CAS, so that it does not get suspended to avoid context switching. The number of times for a thread to spin during CAS, is **adaptive**
+  - **Lightweight locking** and **Biased Locking** (before JDK 15)
+    - We need lightweight locking because very often there is only one thread at a time accessing synchronized block. It is not worth it to use heavy weight locking with one thread. 
+
+- How does Synchronized locks gets upgraded? **By contention**
+  - biased --> light --> heavy
+  - First of all where does the object store lock information (since we are doing `synchronized(object){}` all the time)
+    - in Object Header --> Mark Word (`markOop.hpp`), 
+      - `101` biased lock
+      - `01` no lock
+      - `10` heavy lock
+      - `00` light lock
+    - We can use JOL tool to print `ClassLayout`
+    - Light lock stores MarkWord in `Thread Stack` --> `LockRecord.dhw`, then during multi-threading, try to CAS `LockRecord.dhw` back to Object header, if `dhw` is null, that means another thread has the light lock so current thread must return. If CAS fails, then contention, therefore upgrade to Heavy Lock.
+  - Heavy lock can become no lock, but then it will become light lock, it will never be biased lock ever.
+  
+- Biased locking (deprecated after JDK 15) in depth
+  - the problem is not only are synchronized blocks accessed one at a time most of the time, they are also accessed **by the same thread**. So to eliminate the unnecessary CAS (lightweight lock) in this scenario, we do Biased locking (a bit over engineering)
+  - Only active after Hotspot starts for 4s. 
+  - **Qn**: if we are calling `obj.hashCode()`, do we still get a biased locking by default?
+    - biased lock will be revoked because hashcode will take up space for biased_locking_bit in MarkWord.
+    - light lock keeps lock record in thread stack
+    - heavy lock keeps it in Monitor.hpp
+  - If you do `obj.notify` biased --> light
+  - if you do `obj.wait`   biased --> heavy
+  - Bulk Rebias and Bulk Revoke
+
+---
 # Spring源码专题
 ## How is a bean constructed
 - scan -> BeanDefinitionMap
