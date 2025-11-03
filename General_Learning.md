@@ -110,6 +110,7 @@
 - [11. PluralSight Python](#11-pluralsight-python)
 - [Hands On LLM](#hands-on-llm)
   - [How does LLM services handle concurrencies](#how-does-llm-services-handle-concurrencies)
+  - [AI Infra model](#ai-infra-model)
 
 Page 23
 
@@ -2841,3 +2842,7 @@ When you ask a math question, only the math expert activates, saving compute pow
 
 - If you just want to run a model in your local, you can just intall the necessary python library (ollama hugging face), and run it from python interpreter
 - However if you want to deploy a solution that can handle huge inference load, you will need to know Triton.
+
+## AI Infra model
+
+![AI Infra](AI_Infra.png)

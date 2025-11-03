@@ -38,6 +38,7 @@
   - [ThreadLocal详解](#threadlocal详解)
   - [深入理解CAS和Atomic原子类操作详解](#深入理解cas和atomic原子类操作详解)
   - [并发锁机制之深入理解synchronized](#并发锁机制之深入理解synchronized)
+  - [JUC并发同步工具类在大厂中应用实战](#juc并发同步工具类在大厂中应用实战)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -1119,6 +1120,24 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - If you do `obj.notify` biased --> light
   - if you do `obj.wait`   biased --> heavy
   - Bulk Rebias and Bulk Revoke
+
+## JUC并发同步工具类在大厂中应用实战
+
+- What is difference between `Synchronized` and `Lock` interface:
+  - Intrinsic lock (monitor lock) vs Explicit Lock (JUC, deep down used AQS and CAS)
+- `Reentrantlock`: like `synchronized`, support re-entering.
+  - similar to a ticket window selling ticket to a queue of buyers
+  - Under the hood: linkedlist, with the head (which CAS AQS state successfully) being the owner of the lock. Next owner will be assigned to `head.next` (if fair lock), It can also be any newcomers (unfair lock) who successfully CAS-ed the AQS state.
+  - `Condition`: more powerful, more flexible `wait()` and `notify()`
+    - Use `Condition` to implement Producer Consumer pattern.
+- `Semaphore`: allow multiple thread to access shared resources
+  - internal counter
+  - used for rate limiting or access to resource pool.
+  - **NOTE: use release with caution!! ANY THREAD can release a semaphore**, it doesn't have to be the owner! 
+- `CountDownLatch`: wait for everyone in the team to get on the bus, before starting the bus.
+  - counter like `Semaphore`
+  - but the counter is one time only. There is no `release` to add it back
+  - That is why we have `CyclicBarrier`
 
 ---
 # Spring源码专题
