@@ -32,6 +32,7 @@
   - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
   - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
   - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
+  - [Kafka 上手](#kafka-上手)
 - [并发编程](#并发编程)
   - [Concurrency and Multithreading 101](#concurrency-and-multithreading-101)
   - [Future \& CompletableFuture 实战](#future--completablefuture-实战)
@@ -808,6 +809,12 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - Client will be referenced by actual server
   - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
+## Kafka 上手
+
+- prerequisite is a must! at least you need to setup `HostOnly` and `Nat` network adapter
+- need to setup zookeeper and java
+
+
 # 并发编程
 
 ## Concurrency and Multithreading 101
@@ -1138,6 +1145,76 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - counter like `Semaphore`
   - but the counter is one time only. There is no `release` to add it back
   - That is why we have `CyclicBarrier`
+- `CyclicBarrier`
+  - can be reused
+  - feels like a tour bus, every get on the bus -> go to a scene -> every get off -> park the bus
+  - uses barrier point instead of counter like `CountDownLatch`, wait for all threads to reach barrier point, instead of counter becoming 0.
+- `Exchanger`
+  - For 2 threads to literally exchange data.
+  - if one thread reaches `exchange()` first, it will wait for other thread.
+  - use case inlcluding payment scenario. 
+- `Phaser`
+  - More flexible form of multi-threads coordinations
+  - like a combination of `CountDownLatch` and `CyclicBarrier`
+  - it can support **Dynamic Membership per phase**, very important, very powerful, `CyclicBarrier` cannot do that.
+  - One `Phaser` object handles all rounds, with `CyclicBarrier` and `CountDownLatch` you will need multiple barriers. 
+  - Graceful early exit with `arriveAndDeregister`
+  - Global phase hooks, `onAdvance` gives a phase-wide callback to run houskeeping exactly when the last party arrives (e.g. sealing buffers, toggling read-only views, switching indices)
+  - So powerful, yet easily replaced by `CompletableFuture.allOf(tasks.toArray(CompletableFuture[]::new)).join();`
+  
+- Supplementary, how to handle `if` during multithread scenario
+  - **Guarded Suspension Pattern**: "Please wait for me to be ready"
+    - this is actually how `join` and `future` is implemented
+    - Relies on Java wait notify mechanism:
+      - `synchronized` and `wait` + `notify` + `notifyAll`
+      - ReentrantLock + Condition (await/signal/signalAll)
+      - cas + park/unpark
+  ```java
+    public class GuardedObject<T> {
+      private T obj;
+
+      public T get() {
+        synchronized(this) {
+          while(obj == null) {
+            try{
+              this.wait();
+            } catch (InterruptedException e) {
+              e.printStackTrace();
+            }
+          }
+          return obj;
+        }
+      }
+
+      public void complete(T obj) {
+        synchronized(this) {
+          this.obj = obj;
+          this.notifyAll();
+        }
+      }
+    }
+  ```
+  - **Balking Pattern**: "Okay, if you don't need then forget it"
+    - used in `synchronzied` lock inflation, only one thread to obtain the monitor object
+    - DCL singleton instances
+    ```java
+      public class SingletonCalss {
+
+        private static volatile SingeltonClass instance;
+
+        public static SingletonClass getInstance() {
+          if (instance == null) {
+            synchronized(this) {
+              if (instance == null) {
+                init()
+              }
+            }
+          }
+        }
+      }
+
+    ```
+    - Services initializations
 
 ---
 # Spring源码专题
