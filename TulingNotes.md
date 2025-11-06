@@ -40,6 +40,7 @@
   - [深入理解CAS和Atomic原子类操作详解](#深入理解cas和atomic原子类操作详解)
   - [并发锁机制之深入理解synchronized](#并发锁机制之深入理解synchronized)
   - [JUC并发同步工具类在大厂中应用实战](#juc并发同步工具类在大厂中应用实战)
+  - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -617,8 +618,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
     - if not `sudo systemctl enable --now ssh`
   - ![host-only-config](./Host-Only.PNG)
 - After configuring everything, create linked clones
-
-
+  
 ## Redis核心数据结构实战+服务搭建
 - How to set up redis cluster
   - redis master slave replication (kinda like mysql 1 master 2 slave)
@@ -810,10 +810,75 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
 ## Kafka 上手
-
 - prerequisite is a must! at least you need to setup `HostOnly` and `Nat` network adapter
 - need to setup zookeeper and java
+- ZooKeeper config:
+```sh
+root@chenyang-ubuntu:/app/zookeeper/apache-zookeeper-3.8.5-bin# cat conf/zoo.cfg
+tickTime=2000
+initLimit=10
+syncLimit=5
+# the directory where the snapshot is stored.
+# do not use /tmp for storage, /tmp here is just
+# example sakes.
+dataDir=/app/zookeeper/data
+# the port at which the clients will connect
+clientPort=2181
+server.1=192.168.88.10:2888:3888
+server.2=192.168.88.11:2888:3888
+server.3=192.168.88.12:2888:3888
+```
+  **NOTE** "Host-Only" ip in `zoo.cfg`
 
+- Kafka server.properties:
+```sh
+root@chenyang-ubuntu:/app/kafka/kafka_2.13-3.8.1# cat config/server.properties
+############################# Server Basics #############################
+
+# The id of the broker. This must be set to a unique integer for each broker.
+broker.id=1
+
+############################# Socket Server Settings #############################
+
+# The address the socket server listens on. If not configured, the host name will be equal to the value of
+# java.net.InetAddress.getCanonicalHostName(), with PLAINTEXT listener name, and port 9092.
+#   FORMAT:
+#     listeners = listener_name://host_name:port
+#   EXAMPLE:
+#     listeners = PLAINTEXT://your.host.name:9092
+#listeners=PLAINTEXT://:9092
+listeners=PLAINTEXT://192.168.10.31:9092
+
+# Listener name, hostname and port the broker will advertise to clients.
+# If not set, it uses the value for "listeners".
+#advertised.listeners=PLAINTEXT://your.host.name:9092
+#advertised.listeners=PLAINTEXT://192.168.10.31:9092
+num.network.threads=3
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600
+log.dirs=/app/kafka/logs
+num.partitions=1
+num.recovery.threads.per.data.dir=1
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+
+############################# Log Retention Policy #############################
+log.retention.hours=168
+log.retention.check.interval.ms=300000
+
+############################# Zookeeper #############################
+zookeeper.connect=worker1:2181,worker2:2181,worker3:2181
+
+# Timeout in ms for connecting to zookeeper
+zookeeper.connection.timeout.ms=18000
+group.initial.rebalance.delay.ms=0
+
+```
+**Note**: worker1, worker2, worker3 are `Host-Only` ips (ens37), they are defined in `/etc/hosts`. **For client connections**, we cannot use them, unless the client is on the same host. That is why for `listeners`, we use `PLAINTEXT://192.168.10.31:9092` which is ens38 address, so that Kafka can listen to the ip that the current walking machine can write to. 
+![Kafka-Zookeeper-VM-Setups](network_connection.png)
 
 # 并发编程
 
@@ -1215,6 +1280,18 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
 
     ```
     - Services initializations
+
+## 深入理解AQS之独占锁ReentrantLock源码分析
+
+- AbstractQueuedSynchronizer
+  - AQS Condition is a modernized, explicit, and flexible version of Java’s intrinsic wait/notify model — same principles, better engineering. Difference is that AQS could have multiple condition queue, intrinsic lock only have one condition queue. 
+  - `volatile int state`: `getState`, `setState`, `compareAndSetState`
+  - Exclusive (ReentrantLock) vs Shared (Semaphore, CountDownLatch)
+  - Sync Queue (CLH Queue): Deque, hold thread which failed to acquire lock
+  - Condition queue: when thread `await()`, it will release lock, and will be added to Condition Queue, when others invoke `signal()`, it will put one node from condition queueu into Sync Queue, waiting to acquire lock again. 
+- Re-entrant lock implemented using CAS + AQS. 
+  - `Sync` vs `NonfairSync` (`NonfairSync` has 2 extra CAS tries in 1.8, 1 extra CAS tries in jdk 25)
+  
 
 ---
 # Spring源码专题
