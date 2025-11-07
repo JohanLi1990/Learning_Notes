@@ -41,6 +41,8 @@
   - [并发锁机制之深入理解synchronized](#并发锁机制之深入理解synchronized)
   - [JUC并发同步工具类在大厂中应用实战](#juc并发同步工具类在大厂中应用实战)
   - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
+  - [Semaphore \& CountDownLatch \& Cyclic Barrier 源码分析](#semaphore--countdownlatch--cyclic-barrier-源码分析)
+  - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
   - [AOP](#aop)
@@ -880,6 +882,15 @@ group.initial.rebalance.delay.ms=0
 **Note**: worker1, worker2, worker3 are `Host-Only` ips (ens37), they are defined in `/etc/hosts`. **For client connections**, we cannot use them, unless the client is on the same host. That is why for `listeners`, we use `PLAINTEXT://192.168.10.31:9092` which is ens38 address, so that Kafka can listen to the ip that the current walking machine can write to. 
 ![Kafka-Zookeeper-VM-Setups](network_connection.png)
 
+- Verify cluster after setting up:
+```sh
+//shell
+nc -z 192.168.10.31 9092
+// powershell
+Test-NetConnection 192.168.10.31 -Port 9092
+
+```
+
 # 并发编程
 
 ## Concurrency and Multithreading 101
@@ -1290,8 +1301,34 @@ group.initial.rebalance.delay.ms=0
   - Sync Queue (CLH Queue): Deque, hold thread which failed to acquire lock
   - Condition queue: when thread `await()`, it will release lock, and will be added to Condition Queue, when others invoke `signal()`, it will put one node from condition queueu into Sync Queue, waiting to acquire lock again. 
 - Re-entrant lock implemented using CAS + AQS. 
-  - `Sync` vs `NonfairSync` (`NonfairSync` has 2 extra CAS tries in 1.8, 1 extra CAS tries in jdk 25)
-  
+  - `FairSync` vs `NonfairSync`
+    - key implementations details, `tryAcquire` (in `FairSync` and `NonfairSync`)
+      - in `FairSync`, `tryAcuire` try to check `hasQueuedPredecessors()`, `NonFairSync` dont care
+  - `addWaiter`(AQS): if I can CAS the `tail` in my Sync Queue, good, return; otherwise `enq` the node. `enq` is a `for(;;) loop`
+  - `aquireQueued` -> `shouldParkAfterFailedAcquire`: here we park the thread.
+  - `unlock` -> `tryRelease` (AQS)
+- It is all based on AQS. nothing fancy.
+
+## Semaphore & CountDownLatch & Cyclic Barrier 源码分析
+- Semaphore (very similar to ReentrantLock)
+  - `NonfairSync`: `tryAcquireShared` straight away go for CAS. 
+  - `FairSync`: `tryAcquireShared` has `hasQueuedPredecessor`
+  - state is number of permits
+  - core logic lies in `doAcquireSharedInterruptibly` (AQS)
+  - `shouldParkAfterFailedAcquire` and `parkAndCheckInterrupt`, 2 phase approach to park the thread at OS Level
+
+## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
+- *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
+- *Non-blocking discipline: never block unless absolutely necessary*, for every loop, try CAS to see if you are lucky
+  - **Design Discipline**: Optimistic retry before park.
+- *CAS + volatile state as synchronization contract*
+  - Every state change is a small handshake in a lock-free protocol. 
+  - When a thread sets pred.waitStatus = SIGNAL, it’s effectively saying: “I am now depending on your release path to wake me.” 
+  - That’s a **happens-before** contract. It replaces explicit condition variables with atomic state transitions.
+  - **Design discipline**: Represent synchronization intentions as explicit atomic states.
+- *Composability over direct blocking primitives*
+  - Universal application of "set flag → retry → park if still needed" for every locks
+- *deterministic safety (no missed wake-ups, no corruption) + opportunistic liveness (try again before blocking).*
 
 ---
 # Spring源码专题
