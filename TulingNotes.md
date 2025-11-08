@@ -25,14 +25,17 @@
   - [Mysql8.0高可用集群架构实战](#mysql80高可用集群架构实战)
 - [分布式专题](#分布式专题)
   - [Pre-requisite, setting up of VMWare workstations](#pre-requisite-setting-up-of-vmware-workstations)
-  - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
-  - [深入理解Redis线程模型](#深入理解redis线程模型)
-  - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
-  - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
-  - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
-  - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
-  - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
-  - [Kafka 上手](#kafka-上手)
+  - [Redis](#redis)
+    - [Redis核心数据结构实战+服务搭建](#redis核心数据结构实战服务搭建)
+    - [深入理解Redis线程模型](#深入理解redis线程模型)
+    - [Redis进阶二之Redis数据安全性分析](#redis进阶二之redis数据安全性分析)
+    - [大厂生产级Redis高并发分布式锁实战](#大厂生产级redis高并发分布式锁实战)
+    - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
+    - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
+    - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
+  - [Kafka](#kafka)
+    - [Kafka 上手](#kafka-上手)
+    - [Kafka 客户端详解](#kafka-客户端详解)
 - [并发编程](#并发编程)
   - [Concurrency and Multithreading 101](#concurrency-and-multithreading-101)
   - [Future \& CompletableFuture 实战](#future--completablefuture-实战)
@@ -41,7 +44,7 @@
   - [并发锁机制之深入理解synchronized](#并发锁机制之深入理解synchronized)
   - [JUC并发同步工具类在大厂中应用实战](#juc并发同步工具类在大厂中应用实战)
   - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
-  - [Semaphore \& CountDownLatch \& Cyclic Barrier 源码分析](#semaphore--countdownlatch--cyclic-barrier-源码分析)
+  - [Semaphore, CountDownLatch and Cyclic Barrier 源码分析](#semaphore-countdownlatch-and-cyclic-barrier-源码分析)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -620,8 +623,9 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
     - if not `sudo systemctl enable --now ssh`
   - ![host-only-config](./Host-Only.PNG)
 - After configuring everything, create linked clones
-  
-## Redis核心数据结构实战+服务搭建
+
+## Redis
+### Redis核心数据结构实战+服务搭建
 - How to set up redis cluster
   - redis master slave replication (kinda like mysql 1 master 2 slave)
   - sentinels (usually multiples and odd number) usually used together with one master + multiple slave topologies
@@ -659,7 +663,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
     - Becareful of your serializers, your serializer may transform your key and value into something else.
     - Define your own serializer in `RedisTemplate` if necessary.
 
-## 深入理解Redis线程模型
+### 深入理解Redis线程模型
 - Intro
   - Redis at 2024: not just a cache but a DB ecosystem.
   - Mostly single threaded but there are other threaded operations such as UNLINK, slow IO accesses... refer to redis.conf (~/redis/redis.conf)
@@ -681,7 +685,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
 - LUA scripts (used a lot for distributed lock)
 - Redis function: a convenient way to call Lua Script.
 
-## Redis进阶二之Redis数据安全性分析
+### Redis进阶二之Redis数据安全性分析
 - Redis Benchmark: `redis-benchmark`
 - Redis persistence in depth:
   - [link](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
@@ -722,7 +726,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
     - Redis Enterprise even safer.
     - Redis Cloud, part DB, part cache
 
-## 大厂生产级Redis高并发分布式锁实战
+### 大厂生产级Redis高并发分布式锁实战
 **NOTE: Best live demo on redis I have ever seen**
 - Demostrate, at the source code level how *Redisson* helps us implement a distributed lock.
 - Conceptually it is very straight forward, but implementation is very smart and well thought off.
@@ -740,7 +744,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - Semaphore tryacquire(timeout) will put current threads in `WAITING` state, which waits for `SIGNAL` to wake up. In a `BLOCKED` thread, thread is waiting for a `LOCK` to be available. 
   - Semaphore tryacquire basically is using `CAS` in `AbstractSynchronizedQueue`. You need to read up on concurrency courses.
 
-## 一线大厂高并发缓存架构
+### 一线大厂高并发缓存架构
 - Basic Redisson PubSubLock, 
 - Big Prom scenario:
   - Use segment locking, product_101_1 : 100, product_101_2:100 ... product_101_10:100, 
@@ -774,7 +778,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - so that response is faster. 
   - Big data related
 
-## Redis缓存设计与性能优化
+### Redis缓存设计与性能优化
 - Multilevel cache in depth:
 - Cache penetrations: 
   - soln1: empty-cache with ttl.
@@ -798,7 +802,7 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - normal scenarios LRU is enough
   - however, if encountered with hotspot scenario, LFU could be better. 
 
-## 京东热点缓存探测系统JDhotkey架构剖析
+### 京东热点缓存探测系统JDhotkey架构剖析
 - Very lightweight, elegant solution for hotkey detection. 
 - Built on ***Netty***, long http connection. 
 - Source [Code](https://gitee.com/jd-platform-opensource/hotkey/blob/master-v0.0.4/README.md)
@@ -811,7 +815,9 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - Client will be referenced by actual server
   - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
-## Kafka 上手
+
+## Kafka
+### Kafka 上手
 - prerequisite is a must! at least you need to setup `HostOnly` and `Nat` network adapter
 - need to setup zookeeper and java
 - ZooKeeper config:
@@ -890,6 +896,69 @@ nc -z 192.168.10.31 9092
 Test-NetConnection 192.168.10.31 -Port 9092
 
 ```
+### Kafka 客户端详解
+- **Pre-requisite create Topic (e.g. disTopic)**  
+  - `bin/kafka-topics.sh --bootstrap-server worker1:9092 --create --topic disTopic --partitions 3 --replication-factor 2`
+- Kafka client api is written in java, you can source it via maven central
+- `KafkaProducer.java`:
+  - mandatory configs:
+    - `ProducerConfig.BOOTSTRAP_SERVERS_CONFIG`
+    - `ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG`
+    - `ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG`
+    - define your `TOPIC`
+  - send msg: `ProducerRecord<String, String> record = new ProducerRecord<>(TOPIC, Integer.toString(i), "MyProducer" + i);`
+- `KafkaConsumer.java`:
+  - mandatory configs:
+    - `ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG`
+    - `ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG`
+    - `ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG`
+    - Define Consumer Group: `GROUP_ID_CONFIG`
+  - polling msg: `ConsumerRecords<String, String> records = consumer.poll(Duration.ofNanos(100))`
+  - commit offset: `commitSync`, `commitAsync`
+- Consumer Group:
+  - messages in partition --> only **CONSUMABLE by ONE Consumer (within one Consumer Group)**
+  - `Offset`, how many msgs each Consumer Group has consumed per Partition. Crucial to control progress. 
+  - `Offset` determines the progress of our consumers. 
+  - Sometimes it is easier to manage it, if we manage our own offset (Put in Redis) instead of relying on Kafka Offset. So we know **for sure** the message (for example an order) has been processed. This is because *Receiving an msg successfully* and *Successfully processed the message* doesn't have to be hard coupled.
+- `ProducerInterceptor`: `filters`, `Interceptor`, `SoapHandler`
+- Serializers: Compact binary with json schema (`Avro`)
+- Message Routing:
+  - Producers:
+    - Default Sticky strategy.  Send messages until `batch.size` == 16K, or `linger.ms` reached, after that RoundRobin.
+    - `PARTITIONER_CLASS_CONFIG = "partitioner.class"` for customized ParitionedProducer.
+  - Consumers:
+    - `PARTITION_ASSIGNMENT_STRATEGY`
+    - `RangeAssignor`, `RoundRobinAssignor`, `StickyAssignor`
+- Producer Messages Buffer 
+  - Send messages in batch. 
+  - batches are stored in `Dequue` in `RecordAccumulator`, then send to brokers.
+  - `linger.ms`
+- ACK 
+  - `acks = 0`
+  - `acks = 1`
+  - `acks = all` or `acks = -1`
+    - if `min.insync.replicas` of partions have been written, then return `ACK` to producer. Configured in `broker.conf`
+- Producer Message `Idempotency`
+  - if Broker no response, message considered not sent, so `Producer` retries. 
+  - `ProducerConfig.RETRIES_CONFIG`
+  - `at least once`, `at most once`, `exactly once`
+    - `exactly once` Implementations:
+      - control order using `PID` and `Sequence Number`
+- Producer Message Compression.
+  - broker.conf --> zstd
+- Producer Message Transactions:
+  - Group Transaction when writing multiple messages.
+  - if one fail all fails
+  - use customized `TRANSACTIONAL_ID_CONFIG`, can be any value, but it better has something to do with business
+- Spring boot integration:
+  - very easy, a Wrapper over the client-api above
+  - you can add customized kafka configuration (if not already provided by Spring boot):
+    - e.g. `spring.kafka.producer.properties.interceptor.classes=com.roy.kfk.basic.MyInterceptor`
+    -  they will put <`interceptor.classes`, `com.roy.kfk.basic.MyInterceptor`> in `properties` map and pass it to the `kafka` client.
+- Summary:
+  ![Kafka Client Side flow](kafka_client_side_process_flow.png)
+
+
 
 # 并发编程
 
@@ -1309,7 +1378,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - `unlock` -> `tryRelease` (AQS)
 - It is all based on AQS. nothing fancy.
 
-## Semaphore & CountDownLatch & Cyclic Barrier 源码分析
+## Semaphore, CountDownLatch and Cyclic Barrier 源码分析
 - Semaphore (very similar to ReentrantLock)
   - `NonfairSync`: `tryAcquireShared` straight away go for CAS. 
   - `FairSync`: `tryAcquireShared` has `hasQueuedPredecessor`
