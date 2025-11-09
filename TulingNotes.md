@@ -1379,12 +1379,42 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - It is all based on AQS. nothing fancy.
 
 ## Semaphore, CountDownLatch and Cyclic Barrier 源码分析
-- Semaphore (very similar to ReentrantLock)
+- **Semaphore** (very similar to ReentrantLock)
   - `NonfairSync`: `tryAcquireShared` straight away go for CAS. 
   - `FairSync`: `tryAcquireShared` has `hasQueuedPredecessor`
   - state is number of permits
   - core logic lies in `doAcquireSharedInterruptibly` (AQS)
   - `shouldParkAfterFailedAcquire` and `parkAndCheckInterrupt`, 2 phase approach to park the thread at OS Level
+  - The decision to to propagate or not lies in the `ws` variable of node in sync queue.
+    - if it is `PROPAGATE` there might be threads that need unpark. so we need to check later during `doAcquireSharedInterruptibly`
+  - Semaphore relaease, acquire entire flow
+  ![Semaphore Flow](Semaphore_acquire.drawio.svg)
+
+- **CountDownLatch**
+  - Just like `Semaphore`, with its own `tryAcquireShared` and `tryReleaseShared`
+  - when calling `await` ->  `getState() > 0`, we still have some thread not finished -> add the main thread to sync queue -> park
+  - when `CountDownLatch.countDown()` -> CAS state( -1) -> `if getStat() == 0` -> `doReleaseShared` (just like Semaphore) -> main thread proceed
+  
+- **Cyclic Barrier**
+  - `ReentrantLock` with `Condition`
+  - Each round is a `generation`, `parties` is the number of threads that must invoke `await` before barrier is tripped, `barrierCommand` is the callback.
+  - `CyclicBarrier.await()` 
+    - `CyclicBarrier doWait()` all threads compete locks here 
+    - `AbastractQueuedSynchronizer.ConditionObject.await()` 
+    - `addConditionWaiter()` start to construct **Condition Queue** (as opposed to Sync Queue) 
+    - `fullyRelease` release the current `ReentrantLock` so that others can access the exclusive lock and proceed to the above steps also.
+    - `park` the current thread if it `isNotOnSyncQueue`
+  - When the last thread execute `doWait`
+    - count becomes = 0, trigger `barrierCommand`
+    - start `nextGeneration`
+    - condition `trip.signalAll`
+    - `AQS.doSignalAll` transfer all nodes from Condition Queueu to **Sync Queue**, and set for each node, `node.predecessor.ws = -1` (ready for awake)
+    - in the finally clause do `lock.unlock` so the lock can be free again.
+  - When another thread detects it is actually on the SynQueue
+    - begain to try to `acquireQueued`
+    - if the node predecessor is head, then it is the current thread's turn, tryAcquire the thread
+    - if succeed, return to `dowait` return index, and finally `lock.unlock()`, else retry in the for loop.
+    - other threads in the same SyncQueue will do like wise.
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
@@ -1398,6 +1428,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - *Composability over direct blocking primitives*
   - Universal application of "set flag → retry → park if still needed" for every locks
 - *deterministic safety (no missed wake-ups, no corruption) + opportunistic liveness (try again before blocking).*
+- Doug Lea, is really smart
 
 ---
 # Spring源码专题
