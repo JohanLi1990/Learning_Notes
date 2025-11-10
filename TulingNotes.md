@@ -45,6 +45,7 @@
   - [JUC并发同步工具类在大厂中应用实战](#juc并发同步工具类在大厂中应用实战)
   - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
   - [Semaphore, CountDownLatch and Cyclic Barrier 源码分析](#semaphore-countdownlatch-and-cyclic-barrier-源码分析)
+  - [并发容器（Map、List、Set）实战及其原理分析](#并发容器maplistset实战及其原理分析)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -1415,6 +1416,39 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - if the node predecessor is head, then it is the current thread's turn, tryAcquire the thread
     - if succeed, return to `dowait` return index, and finally `lock.unlock()`, else retry in the for loop.
     - other threads in the same SyncQueue will do like wise.
+
+## 并发容器（Map、List、Set）实战及其原理分析
+- `CopyOnWriteArrayList`, `CopyOnWriteArraySet`:
+  - replace Vector, SynchronizedList
+  - used in More Read than Write Scenario. 
+  - used in more static datas.
+  - Real life application: **blacklist**
+  - Reentrant Lock -> copy, moddification -> volatile -> unlock 
+  - **Downside:** heavy on rams
+  - **Not strongly consistent**
+  - iterator is `fail-safe` here, as opposed to `fail-fast` in normal `ArrayList`
+- `ConcurrentHashMap`
+  - `computeIfAbsent`, `merge` is very important, it solves the `read -> modify -> write` problem with group transactions
+  - Data strucutre: Hashmap + CAS & synchronized. 
+  - CAS on table slot, `synchronized` on bucket head, CAS spinlock on `TreeBin.lockState`
+  - During resize: CAS and synchronized on transfer control, cooperative resizing. 
+  - **per bucket granularity**
+  - **no longer using segment lock after jdk 1.7**
+- `ConcurrentSkipListMap`
+  - used in highly concurrent, support orderly and ranged query. O(logN) query 
+  - need to control the height. 
+- E-Commerce use cases:
+  - **How do we record sales of each item, in a promotional event:**
+    - HashMap not threadsafe.
+    - HashTable to heavy, not performant
+    - ConcurrentHashMap
+  - **During the promotional event, record down what the user viewed, and how many times he/she viewed the item, and do it for ALL users**
+    - Every body views **a lot of** items, so we are talking about **Lots of read, and lots of writes**
+    - if we use `ConcurrentHashMap`, each key might have a lot of entries, and this might result in TreeBinfy.
+    - and TreeBins (RBT) will have rebalances (rotateleft, rotateRight) during insertions, and removal, so this will leads to high contentions when doing TreeBin.lock
+    - ConcurrentSkipListMap. more performant when it comes to LRLW(lot of read lots of write)
+  - **How to keep a black list of users**
+    - LRFW (lots of read few writes) , CopyOnWriteArrayList
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
