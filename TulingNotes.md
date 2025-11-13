@@ -36,6 +36,11 @@
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
+    - [Kafka 集群工作机制详解](#kafka-集群工作机制详解)
+- [算法与数据结构番外](#算法与数据结构番外)
+  - [(Classic) Red Black Tree](#classic-red-black-tree)
+    - [Background](#background)
+    - [Core logics](#core-logics)
 - [并发编程](#并发编程)
   - [Concurrency and Multithreading 101](#concurrency-and-multithreading-101)
   - [Future \& CompletableFuture 实战](#future--completablefuture-实战)
@@ -46,6 +51,7 @@
   - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
   - [Semaphore, CountDownLatch and Cyclic Barrier 源码分析](#semaphore-countdownlatch-and-cyclic-barrier-源码分析)
   - [并发容器（Map、List、Set）实战及其原理分析](#并发容器maplistset实战及其原理分析)
+  - [阻塞队列BLOCKINGQUEUE实战及原理分析](#阻塞队列blockingqueue实战及原理分析)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -959,6 +965,101 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - Summary:
   ![Kafka Client Side flow](kafka_client_side_process_flow.png)
 
+### Kafka 集群工作机制详解
+- Zookeeper Cluster data management:
+  - Among brokers, elect a **Controller**, to manage leader partitions and follower partitions
+  - Among partitions, elect a **Leader**, which will oversea data transfer with the client app.
+  - leverages LEO (log end offset), HW (high watermark)
+  - Intellij, ZooKeeper plugins
+- **Controller Broker Elections**, oversaw by zookeeper, only one broker will become controller. 
+  - monitor `/brokers/ids`, and ids changes, see if brokers are down.
+  - monitor `/brokers/topics`, detect changes in topic and corresponding partitions
+  - monitor `/admin/delete_topic`, delete topic
+  - also in charge of pushing metadata to other brokers.
+- **Leader Partition**
+  - `AR`, `ISR`, `OSR`
+  - to check `AR` and `ISR`, `[root@192-168-65-112 kafka_2.13-3.8.0]# bin/kafka-topics.sh --bootstrap-server worker1:9092 --describe --topic disTopic`
+  - **Election**: choose acording to orders in `AR` List.
+  - **Self Auto Balance**:  
+    - Leader partition is busy, so kafka tries to place it on different **broker node** to spread the workload.
+    - However if there is a partition changes, and new elections, this balance might be destoryed. i.e. we have multiple leader partitions on one Broker.
+    - That is why we have the Leader Partitions Auto Re-Balancing mechanism.`auto.leader.rebalance=true`
+- **Partition Recovery**
+  - if message reached leader partition, and leader is dead, then we lost messages.
+  - LEO and HW.
+
+# 算法与数据结构番外
+
+*[Interesting Read on Red Black Tree](https://github.com/zarif98sjs/RedBlackTree-An-Intuitive-Approach/blob/main/README.md)*
+
+## (Classic) Red Black Tree 
+
+### Background
+- BST is very good `Olog(N)`, but its worst case is `O(N)`, degrading to `LinkedList`, which is sad.
+- So we need a perfectly self-balancing tree, to improve the **worst case** scenario.
+- **Intuition 1:** Wouldn't it be easier to auto-reblance? Hence AVL trees (left height - right height <= 1)
+  - However AVL trees have more rotations, which can be costly if my data increases
+- **Intuition 2:** Why don't we have more than one key in node, so that, we don't rotate so much? 
+  - so instead of just 2-Node (1 key, 2 child), what if we have 3-Node, 4-Node
+  - less rotations, comparable look up time. 
+  - During insertions, push the middle key upward.
+  - Logically sound
+  - But, so hard to code right? you need to maintain `2-Node` class, `3-Node` class...etc, and During lookup, you have to traverse all keys within a Node? That is so much maintenance overhead. The reason we want a better tree is to gurantee **worst case** performance. In another word, an insurance. If the cost of insurance is even higher than the worst case itself, it doesn't make sense to have!!
+- **Intuition 3:** What if we can keep only the classic `2-Node` structure, but somehow use `binary encoding` to show that the child node and parent node in fact belongs to one larger (3-Node, 4-Node)
+  - so if a Node is **red**, it belongs to its parent's node, and doesn't count when we calculate height, and thus achieving a loose sense of balance!!
+- **Therefore the 4 properties of RBT:**
+  - **Root must be black**
+  - **All leaves are black**
+  - **Red Children:** if a node is red, both of its children **must be black**
+  - **Black Height:** Every single path from a given node to any of its descendant leaves has the same number of black nodes.
+
+### Core logics
+- Instead of remembering the logics about uncles and what not, try to imagine how would you do if it is a 3-Node, or 4-Node. 
+  ```java
+  void fixInsert(Node cur) {
+    while(cur.parent.color == 1) {
+      if (cur.parent == cur.parent.parent.left) {
+        Node u = cur.parent.parent.right;
+        if (u.color == 1) {
+          // flip color
+          u.color = 0;
+          cur.parent.color = 0;
+          cur.parent.parent.color = 1;
+          cur = cur.parent.parent;
+        } else {
+          if (cur == cur.parent.right) {
+            cur = cur.parent; // assign value here, so that cur always points to grandson.
+            rotateLeft(cur);
+          }
+          // now cur is at the bottom
+          cur.parent.color = 0;
+          cur.parent.parent.color = 1;
+          rotateRight(cur.parent.parent); // rebalance the current
+        }
+      } else {
+        Node u = cur.parent.parent.left;
+        if (u.color == 1) {
+          u.color = 0;
+          cur.parent.color = 0;
+          cur.parent.parent.color = 1;
+          cur = cur.parent.parent;
+        } else {
+          if (cur == cur.parent.left) {
+            cur = cur.parent;
+            rotateRight(cur);
+          }
+          cur.parent.color = 0;
+          cur.parent.parent.color = 1;
+          rotateLeft(cur.parent.parent);
+        }
+      }
+      if (cur == root) break;
+    }
+    root.color == 0;
+  }
+
+  ```
+
 
 
 # 并发编程
@@ -1449,6 +1550,21 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - ConcurrentSkipListMap. more performant when it comes to LRLW(lot of read lots of write)
   - **How to keep a black list of users**
     - LRFW (lots of read few writes) , CopyOnWriteArrayList
+
+## 阻塞队列BLOCKINGQUEUE实战及原理分析
+- Implements `BlockingQueue Interface`, `put(e)` blocks when full, `take()` blocks when empty
+- Used in ThreadPool, Producer-Consumer model, MQ, Caches, Cocurrent Task Execution.
+- `ArrayBlockingQueue`: Bounded Queue based on Array
+  - Simple, **one ReentrantLock**, two **Conditions**, both put and take compete for the same lock.  
+  - uses `putIndex` and `takeIndex`
+  - O(1) time for insertion and deletion
+- `LinkedBlockingQueue`: Queue based on LinkedList
+  - No bound, but recommend to have a bound
+  - take from head, and add to tail, **two locks**, `takeLock`, `putLock`, read write separation, more efficient than `ArrayBlockingQueue`
+  - Comparing with `ArrayBlockingQueue`:
+    - at risk of OOME, if not bounded
+    - creating new node / removing node each time, might be hard on GC. **ArrayBlockingQueue does not incur additional GC cost**
+    - Higher throughput than ArrayBlocking queue because 2 locks. 
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
