@@ -895,7 +895,7 @@ group.initial.rebalance.delay.ms=0
 **Note**: worker1, worker2, worker3 are `Host-Only` ips (ens37), they are defined in `/etc/hosts`. **For client connections**, we cannot use them, unless the client is on the same host. That is why for `listeners`, we use `PLAINTEXT://192.168.10.31:9092` which is ens38 address, so that Kafka can listen to the ip that the current walking machine can write to. 
 ![Kafka-Zookeeper-VM-Setups](network_connection.png)
 
-- Verify cluster after setting up:
+-   cluster after setting up:
 ```sh
 //shell
 nc -z 192.168.10.31 9092
@@ -1234,6 +1234,11 @@ Test-NetConnection 192.168.10.31 -Port 9092
     So Java Designers forbid it explicitly from compile time to runtime. 
     In JS/TS, it just means wiring prototype links — no real “super memory” to initialize.
   ```
+- **Extra Note:**
+    - In java, there are 3 types of references
+    - Strong Reference: normal day to day reference, will never be GC-ed
+    - Soft Reference: will be GC-ed only if not enough memory
+    - Weak Reference: will be eagerly GC-ed, once the **strong reference** of the instance is lost. 
 
 ## 深入理解CAS和Atomic原子类操作详解
 - Compare and Swap General
@@ -1565,6 +1570,33 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - at risk of OOME, if not bounded
     - creating new node / removing node each time, might be hard on GC. **ArrayBlockingQueue does not incur additional GC cost**
     - Higher throughput than ArrayBlocking queue because 2 locks. 
+- `SynchronousQueue`:
+  - Function like `Exchanger` from JUC.
+  - Every put must wait for a take, and every take must wait for a put. So in the long run, this queue is of 0 capacity. 
+  *Work handoff pattern*
+  ```
+    Producer (put)  --->   waits for consumer
+    Consumer (take) <---   waits for producer
+  ```
+  - Used in Thread pools (`Executors.newCachedThreadPool`)
+  - **Two internal modes**: Fair Mode (TransferQueue), Non-fair mode (default, TransferStack, Treiber Stack).
+  - use cases: `Executors.newCachedThreadPool()`, it creates new threads based on needs, and recycle idle thread, threads that are idle for 60s will gets GC-ed.
+  -  Synchronous queueu very likely will lead to `DeadLock`, use with Cautions
+- `PriorityBlockingQueue`
+  - `PriorityQueue`: Binary Heap, `parent = (i - 1) >>> 2`, `childLeft = i * 2 + 1; childRight = i * 2 + 2 `
+  - `siftUp` during insertion,  and `siftDown` (with the last value in the array) during polling,
+  - protected by Re-entrantLock 
+- `DelayedQueue`
+  - A structure that is PrioirtyQueue + RentrantLock + Condition
+  - used leader follower patterns within the poll method to avoid `Stamping Herd` problem. One leader will wake up earlier than others. The followers saw that leader is define, will park and wait to be notified. 
+- `LinkedBlockingDeque`
+  - Can be inserted and removed from both ends, useful for implementing `work stealing` algorithm, which will be covered later. 
+- **How to Choose**
+  - Function, do we need the BlockingQueue to help us order and delay executions, (DelayQueue, PBQ)
+  - Capacity (bounded? or unbounded)
+  - need to resize?
+  - performances
+
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
