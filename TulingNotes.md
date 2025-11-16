@@ -37,6 +37,8 @@
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
     - [Kafka 集群工作机制详解](#kafka-集群工作机制详解)
+    - [Kafka 日志索引详解](#kafka-日志索引详解)
+    - [Kafka 功能扩展](#kafka-功能扩展)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -52,6 +54,7 @@
   - [Semaphore, CountDownLatch and Cyclic Barrier 源码分析](#semaphore-countdownlatch-and-cyclic-barrier-源码分析)
   - [并发容器（Map、List、Set）实战及其原理分析](#并发容器maplistset实战及其原理分析)
   - [阻塞队列BLOCKINGQUEUE实战及原理分析](#阻塞队列blockingqueue实战及原理分析)
+  - [线程池实战及原理分析](#线程池实战及原理分析)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -985,8 +988,141 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - However if there is a partition changes, and new elections, this balance might be destoryed. i.e. we have multiple leader partitions on one Broker.
     - That is why we have the Leader Partitions Auto Re-Balancing mechanism.`auto.leader.rebalance=true`
 - **Partition Recovery**
-  - if message reached leader partition, and leader is dead, then we lost messages.
-  - LEO and HW.
+  - LEO: Log End Offset (when leader partition received and saved message from producers, its LEO + 1; all follower paritions will have to sync from Leader, and do +1 on their own LEO)
+  - HW: High Watermakr, the Minimum of all LEO in a group of partitions.
+    - Conceptually, it is the **highest offset that is guaranteed to be safely replicated to all ISR replicas**, and Consumers are **only allowed to read up to HW**, WHY??
+    - Consistency after leader failover: If ledaer crashes, the new Leader must
+      - keep all offsets <= HW
+      - Trancate anything > HW (those are uncommited)
+    - Gurantee only replicated messages are visible
+      - Consumers **must never see data** that can be lost after failover.
+  - **Scene 1: When follower is down**
+    - follower partition exits ISR, and leader and other follower continue to receive messages
+    - when the follower is back up, it will not join ISR immediately. It will read its local HW, delete all its logs that have higher offset than its HW, and start syncing messages again with leader partition from its local HW.
+    - When the follower's LEO is >= Partion's HW, it will be back into ISR. This means the folower has finally caught up with Leader.
+  - **Scene 2: When Leader is down** (we are fuxxed)
+    - Leader is down, new election among ISR. One follower will be promoted to Leader. At thsi time, the message sync between old leader and the followers might not have completed. So we may have a new leader with LEO < than the previous LEO.
+    - Since Kafka messages are based on copies in the Leader's partition, all followers will have to remove logs entries >= leader's HW, and then start syncing again.
+    - When old leader recover, it will be come follower, and start message re-sync 
+    - **So we might lose quite a lot of messages, what can we do??**
+      - if server side cannot handle it, leave it to Client side. Set producer `ACKS = -1 or all`, force/makesure server-side sync across partitions, otherwise resend the message
+  - **HW is a distributed value, how do we make sure it is consistent/correct among brokers?**
+- **Leader Epoch mechanism**
+  - Intuition: a stale follower may still think it is the leader and write data past the HW.
+    - this creates log divergenece
+    - inconsistent HW
+    - uncommited data , consumers sees phantom data
+  - What is leader Epoch?
+    - eacht time a new leader is elected for a partition, kafka increments a number
+    - `<ledaer epoch id>, <start..end offset range that leader was responsible for>` e.g. `0 0 500`
+  - What it protect
+    - it protects epoch race. Where old leader thinks it is still leader, whereas new leader alreadyh elected. Old leader conitnues writing -> corruption
+    - Kafka prevents above by attaching the leader epoch to every produce request sent to the leader.
+    - if request arrives with an old epoch:
+      - Kafka immediatelyh rejects the write
+      - the stale leader must stop appeding data
+      - it reverts to follower mode
+      - it fetches the new ledaer's log to catchup.
+    - This enforces the gurantee: **only actor with the highest epoch can append to the partition log**
+  - How does this gurantee HW consistency:
+    - Epoch prevents stale leader writes by killing stale leaders instantly. 
+    - e.g. Old leader wakes up -> receives producer request with epoch 6 -> wait a minute, I am epoch 5, i am no longer king!! -> transition to follower state -> start fetching from new leader -> catches up discard stale tail if needed.
+    - Or, Old leader wakes up -> receives new metadata from **cluster controller** -> see that a new leader has been elected -> transition to follower mode
+    - Remeber cluster controller is a special broker/node that is elected to control cluster metadata by Zookeeper/Kraft.
+- **What if Leader Partition and Controller failed at same time?!**
+  - some leader paritions, and the controller for a cluster may happen to be on the same broker/node. if the node is down (Broker A), they are all down, so what happens afterwards?
+  - Suppose Brokers, A, B, C
+    - A is controlelr
+    - A is also leader for partitions P0, P3
+    - B and C have follower replicas of P0, P3 (in ISR)
+  - Step 1: ZK or Kraft notices Broker A is gone:
+      - **ZK**: One of (B, C) wins the race to create /controller -> say B becomes new controller
+      - **KRaft:** The controller Raft quorom elects a new leader controller (which may or may not be B)
+  - Step 2: new controller elects new leaders
+    - for each parition that hand leader == A:
+      - looks at ISR list,
+      - picks a new leader (e.g. B for P0, C for P3)
+      - increments the leader epoch
+      - broadcast new metadata to all brokers
+      - so e.g. P0: leader moves A -> B, P3: leader moves A -> C
+  - Step 3: Clients refresh metadata and continue
+    - producers/consumers periodically refresh cluster metadata,
+      - they learn that P0 leader is B, and P3 leader is C
+      - they reconnect writes/reads to the new leaders.
+
+### Kafka 日志索引详解
+- Kafk only append entries to log files. No delete or updates.
+- For every consuemer group, its progress is written to __consumer__offsets topic. 
+- Why is Kafka IO so performant?
+  - Kafka data file structure, multiple parition under the same topic has independent log.
+  - Zero Copy:
+    - What is zeroy copy: zero copies between Kernel and User. 
+    - Without Zero-Copy: `Disk → Kernel → User Space → Kernel → Socket → NIC`, copy btes 4 times
+    - With Zero-copy: `Disk → Kernel → Socket → NIC` 
+  - Disk sequential writes (600 MB/s), always in append mode.
+    - Used `FileChannel` + `DirectByteBuffer`, best for predictable write semantics
+  - MMAP (memory mapped files): **Random access reading of index files**
+    - Used for index lookups in Kafka
+    - Good for small random access
+    - Not exactly zero copy for network sending
+  - sendfile(Truly Zero Copy):
+    - **used for network send, not for writing logs**
+    - **used for replication + consumer fetch**
+    - `[PageCache] -> NIC (DMA)`
+    - broker says, “Kernel, please send bytes [offset : offset+count] from this file to that socket.”
+    - just a syscall, `fileChannel.transferTo(position, count, socketChannel);`
+    - send those bytes from disk/page-cache directly to socket, Dont copy them to user-space first. 
+    - Path: `Disk/page-cache → kernel → socket → NIC`, the **real high throughput part**
+    - User-mode does not care about content of data, just `sendfile` only. so zero copying from kernel to user. kernel mode straight away send FileDescriptor to Socket buffer zone.
+  - Summary:
+    - **Write Path: (Producer -> Broker)**
+      - `Network → DirectByteBuffer → FileChannel.write() → Page Cache → Disk`
+    - **Read path (Broker → Consumer / Follower)**
+      - `Page Cache → sendfile() → NIC`, TRUE 0-copy
+    - **Index look up**
+      - `mmap → memory access → find physical file offset`
+      - Not zero-copy but extremely fast.
+
+### Kafka 功能扩展
+- Monitoring, Kafka Eagle 
+- KRaft cluster:
+  - `bin/kafka-server-start.sh -daemon config/kraft/server.properties`
+  - for kraft cluster, you need to define cluster id :
+    - cluster-id: `bin/kafka-storage.sh random-uuid j8XGPOrcR_yX4F7ospFkTA`, this has to be the same across cluster. 
+    - `bin/kafka-storage.sh format -t j8XGPOrcR_yX4F7ospFkTA -c config/kraft/server.properties`
+  - After that pretty much similar to zooKeeper. 
+- **Kafka Stream**: KStream (make Kafka stateful)
+  - Used for 
+    - Windowed joins
+    - continous aggregations
+    - stateful operators
+    - repartition topics
+    - local rocksDB state
+    - exactly once streaming pipelines
+  - It is fast not becase it pulls faster, but because
+    - All transformation are local (no network calls)
+    - local state store (RocksDB) ver fast random access
+    - Batch-pulling + Batch-processing -> efficient CPU + IO
+    - Zero coordination scaling -> new instance = auto rebalance
+    - Operators are compiled java code, no external SQL engines
+  - Under the hood:
+    - topology (a graph of transformations).
+    - data goes through topology before being handed over to business logic. 
+  - Real World example, 
+    - Use Case # 1 - Real-Time VWAP / TWAP / Rolling Aggregations (Trading), 
+      - Nightmare to implement in normal consumer
+      - need to maintain rolling window manually. 
+      - If use KStream: one line of code. 
+    - Use Case #2 — Customer 360 / Unified Profile
+      - create a continuously updated real-time materialized view for each customer
+      - KTable join
+    - Use Case #3 — Fraud / AML Real-Time Rules Engine
+      - detect patterns like 3 failed logins in 10 minutes
+      - $20k transferred in < 5 mins. 
+    - Use Case #4 — Enrichment Pipelines
+      - Orders  → add static data
+      - Trades  → add instrument info
+      - Market data → join with reference data
 
 # 算法与数据结构番外
 
@@ -1597,6 +1733,42 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - need to resize?
   - performances
 
+## 线程池实战及原理分析
+- Why do we need ThreadPool: 
+  - reduce nergey consumption, use already created thread.
+  - improve response time, no need to create thread
+  - Manage threads, because threads are scarce resources
+  - Extend fuctionalities, like cronjob, scheduled runners.
+- Constructors: `ThreadPoolExecutor` vs `Executors`
+  - important params: `corePoolSize`, `maximumPoolSize`, `keepAliveTime`, `workQueue`, `ThreadFactory`, `handler`
+  - `Executors`, static methods to call `ThreadPoolExecutor`, use it if you know what you are doing
+- Task Submission:
+  - execute, submit
+  - invokeAll, invokeAny
+  - schedule(Runnable, delay, unit)
+  - schedule(Runnable, initialDealy, period, unit)
+- Shutdown Threadpool
+  - `shutdownNow`: do it now, everyone stop, existing tasks interrrupted, at the same time return list of runnable that were interrupted. 
+  - `shutdown`: no new tasks can come in, but existing running task can finish. 
+- How to define values for key threadpool params
+  - CorePoolSize: depending on number of input, time taken for a thread to finish processing those input.
+  - workQueue size: corePoolSize / (unit time to process a task) * 2
+  - maximumPoolSize: (Maixum spike input - workQueueSize) * (unit time to process a task)
+  - keepAliveTime: no real recommendations. 
+- **ThreadPool** Operations under the hood:
+  - corePools -> workQueue -> maximumPoolSize -> DiscardPolicy
+  - use `ctl` 3MSB for Threadpool State, 29 bit for worker count (500million)
+  - 5 different states: RUNNING (-1 << 29), SHUTDOWN(0), STOP(1), TIDYING(2), TERMINATED(3)
+    - Smart bit manipulation here because running is always negative, and it becomse really cheap/easy to check if a thread is running. e.g. `c & ~COUNT_MASK < 0`
+  - use `addWorker` method to add Task to threadpools, and start it. 
+  - **Why threadpool workerqueue has to be BLOCKINGQUEUE?**
+    - because when there is no task, the current thread
+      - has to be parked and wait for new tasks (default behaviour for thread from corePool)
+      - has to wait for a `keepAliveTime` period before exiting.
+      - so have to use BlockingQueue in this case
+  - **When thread runs into exception, will it be removed from threadpool**
+    - Yes, but if current numebr of threads < corePoolSize, a new thread will be created
+- **ThreadPool Source Code**:
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
