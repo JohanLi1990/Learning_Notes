@@ -1769,6 +1769,46 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - **When thread runs into exception, will it be removed from threadpool**
     - Yes, but if current numebr of threads < corePoolSize, a new thread will be created
 - **ThreadPool Source Code**:
+  - `execute`
+  - `addWorker`: add and run worker thread in containers. 
+    - Shutdown vs Stop logic:
+  ```java
+              if (runStateAtLeast(c, SHUTDOWN)
+                && (runStateAtLeast(c, STOP)
+                    || firstTask != null
+                    || workQueue.isEmpty()))
+                return false;
+  ```
+    - if the threadpool is shutdown mode, we can still process all the tasks that are already in workQueue. we don't have to interrupt them unless the threadpool is in STOP mode. 
+  - `runWorker`
+  - `processWorkerExit`:
+    - if the thread ends abruptly, it will create a new Thread is `RUNNING` or `SHUTDOWN` 
+  ```java
+        int c = ctl.get();
+        if (runStateLessThan(c, STOP)) {
+            if (!completedAbruptly) {
+                int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
+                if (min == 0 && ! workQueue.isEmpty())
+                    min = 1;
+                if (workerCountOf(c) >= min)
+                    return; // replacement not needed
+            }
+            addWorker(null, false);
+        }
+  ```
+  - `getTask`, wait for new tasks from BlockingQueue. When interrupted, check the state of threadpool, if it is stopped return.
+- Concurrency Design Patterns(多线程分工模式)
+  - Thread per message, easy but costly for a java thread ( could be more suitable for Virtual Thread/ Ko-routine, Go-routine)
+  - WorkerThreads (Thread pool)
+  - Producer Consumers: Decoupling
+    - What happens if there is over saturation
+      - if consumer process slower -> increase numebr of consumers
+      - if consuemrs process more, but spikes in producers fill up the blocking queue -> increase queue size
+      - if producer produces much more than consumers, but we cannot increase queue size, and we cannot increase consumers -> rate limit on producer. 
+- Dynamic Thread Pool Parameters:
+  - Important because we want our threadpool to handle varying demand during the day
+  - put the threadpool constructor params in nacos/consul config
+  - Meituan [DynamicTp](https://dynamictp.cn/)
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
