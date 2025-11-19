@@ -55,6 +55,7 @@
   - [并发容器（Map、List、Set）实战及其原理分析](#并发容器maplistset实战及其原理分析)
   - [阻塞队列BLOCKINGQUEUE实战及原理分析](#阻塞队列blockingqueue实战及原理分析)
   - [线程池实战及原理分析](#线程池实战及原理分析)
+  - [ForkJoinPool实战及原理分析](#forkjoinpool实战及原理分析)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -1275,8 +1276,8 @@ Test-NetConnection 192.168.10.31 -Port 9092
   ```
 
 - `sleep` vs `yield`
-  - `sleep` : `RUNNABLE` -> `TIMED_WAITING`
-  - `yeild`: `RUNNABLE(OS_running)` -> `RUNNABLE(OS_Ready)`, no context swithcing.
+  - `sleep` : `RUNNABLE` -> `TIMED_WAITING`, will lead to context switching, guranteed blocking.
+  - `yield`: `RUNNABLE(OS_running)` -> `RUNNABLE(OS_Ready)`, no context swithcing.
   - Both mechanism requires no locks to release control of current cpu.
 
 - Thread Priority
@@ -1809,6 +1810,51 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - Important because we want our threadpool to handle varying demand during the day
   - put the threadpool constructor params in nacos/consul config
   - Meituan [DynamicTp](https://dynamictp.cn/)
+
+## ForkJoinPool实战及原理分析
+- MergeSort Example with ForkJoinPool
+  - Create MergeTask with RecursiveAction
+  - MergeSort with concurrency
+- What is Fork Join Framework:
+  - Divide and conquer model. Fork to divide task, join to merge tasks. 
+  - **Use Case:** CPU heavy tasks. 
+  - `ForkJoinPool` and `ForkJoinTask`
+- `ForkJoinPool`:
+  - constructor params: 
+    - `int parallelism`: number of logical processors
+    - `ForkJoinWorkerThreadFactory`
+    - `UncaughtExceptionHandler`
+    - `asyncMode`: What kind of queue, `FIFO`, `LIFO`
+- `ForkJoinTask`:
+  - `RecursiveAction`: Recursive Runnable , no return value
+  - `RecursiveTask`: Recursive callable
+  - `CountedCompleter<T>`: A custom hook when task completed. 
+- **Common Pitfall:**
+  - Stack Overflow + OOME becuase alot of tasks created, if the recursion runs too deep. 
+  - Avoid lots of Blocking IO type of task (blocking IO), because it could lead to many blocked threads, without `MangedBlocker`. The blocked threads could do nothing but wait for IO to finish. 
+- `ForkJoinPool Mechanism`
+  - `WorkQueue[]` array
+    - `WorkQueue`
+      - `ForkJoinWorkerThread`
+      - `ForkJoinTask`
+- `ForkJoinWorkerThread`
+  - When it is being created, it will create the `WorkQueue`, and place at odd number location in `WorkQueues[]`
+  - When it starts, it will `scan` and start possibly stealing work from another thread. 
+  - When it is `join()`ing, if `ForkJoinPool` discovered that its `WorkQueue` is empty or its task is completed, it will also steal tasks from other queue, and assign to the current `ForkJoinWorkerThread`
+- `WorkQueue`: Deque
+  - if it is external submited, i.e. via `submit`, WorkQueue will be assigned to even number on the `WorkQueues[]`
+  -  if it is external submitted, it does not have its own `ForkJoinWorkerThread`
+-  `Work Stealing Algorithm`
+   -  Allow idle thread to steal work from the `WorkQueue` of a busy thread.
+   -  By default, it will prioritize tasks from its own queue, but when its queue is empty, it will steal from other threads `WorkQueue`.
+   -  ` private int scan(WorkQueue w, int prevSrc, int r)`
+   -  ![DecisionFlowDiagram](./WorkStealing_ForkJoin.png)
+   -  It tries very hard to preven thread being idle
+-  Comparison with normal ThreadPoolExecutor
+   -  WorkStealing, thread is always working
+   -  Divide and Conquer
+   -  Number of threads being (defualt) CPU logical processors number
+   -  more suitable for huge parallel non-blocking task. 
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
