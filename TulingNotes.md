@@ -39,6 +39,7 @@
     - [Kafka 集群工作机制详解](#kafka-集群工作机制详解)
     - [Kafka 日志索引详解](#kafka-日志索引详解)
     - [Kafka 功能扩展](#kafka-功能扩展)
+  - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -1124,6 +1125,76 @@ Test-NetConnection 192.168.10.31 -Port 9092
       - Orders  → add static data
       - Trades  → add instrument info
       - Market data → join with reference data
+
+## 深入理解网络通信和TCPIP协议
+- OSI seven vs TCP IP model
+  ![Logical Mapping](./logicalMapping_OSI_TCPIP_model.png)
+- To help our understandings
+  - Network layer: Network Adapter
+  - Datalink Layer: Network Adapter Driver
+  - IP and TCP layer: Our OS deals with them
+  - Application layer: our own spring boot applications
+- TCP (reliable) vs UDP (unreliable)
+- How does data flow in a TCP model
+  - each layer adding its header to the packet
+  - transport over network
+  - each layer read its own header to see if it is for them, if yes read, if no, discard.
+  ![Data Transfer](./data_transfer_TCPIP.png)
+
+- Address:
+  - MAC address: physical address, factory produced.
+    - `ipconfig /all`
+    - `ifconfig -a`
+  - IP Adress: IPv4 (32 bits, 4 Bytes), IPv6
+- Port:
+  - the address of programs, 22 SSH, 3309 RDP, 80 HTTP
+  - **65535** port number, why?
+    - because TCP/UDP use 16 bits field to store port number in its headers. 2 ^ 16 = 65536. port 0 represents "all" ports, so those usable are 65535. 
+  - To monitor port use the following command:
+    - Windows: `netstat -ano`, `netstat -ano | findstr <port number>`
+    - Linux: 
+      - `lsof -i:<port number>`
+      - `netstat -tunlp`: show tcp, udp port and process information
+      - `netstat -tunlp | grep <port number>`
+- Address & Port:
+  - What is a connection in OS perspective?:
+    - Unique combination of:
+    - Source IP
+    - Target IP
+    - TCP version
+    - Source Port
+    - Target Port
+  - **A server can only maintain 65535 TCP connections, is that right?**:
+    - Absolutely not, any elements in the above 5 elements change is a new connects,
+    - so we should have max = 2^16(targt ports) * 2^32(target ip) * 1 (source ip) * 1 (source target)  = 2^48 = 200 trillion connections
+
+- **TCP characteristics**
+  - reliable: guranteed by **RTO: retransmission time out** + **SYNC-ACK, 3-ways handshkes**
+  - RTO: determins RTT (round trip time) dynamically to decide when to resend.
+  - include sequence number, when ip "upload" the data to TCP layer
+    - it sequences the packets and do validations
+    - if error, ask for resend.
+  - Full duplex, 
+  - **3-way Handshakes**: `ack` is Acknoledgement Number, not the actual `ACK` field
+    - **How**
+      - Client (SYNC_SENT)   - `SYN = 1, seq = J`        -> SERVER
+      - Client <- `SYN = 1, ACK = 1, ack =J + 1, seq=K ` -  SERVER (SYNC_RCVD)
+      - Client (ESTABLISHED)  `ACK = 1, ack = K + 1`     -> SERVER
+      - Client (ESTABLISHED)   `no more transmission`    -  SERVER (ESTABLISHED)
+    - **Why**
+      - 3 is the minimum numbers for 2 connections to
+        - **know** starting sequence of **each other** (e.g. J and K in the previous example)
+        - and **confirm** that they know each other's starting sequence
+    - **Common pitfalls**:
+      - SYN flooding (a type of DDOS attacks)
+        - Aims to blow up the in-memory queue that maintains client's IP, which is fake of course.
+      - How to counter?
+        - Do monitoring on all connections, 
+        - Delayed TCB allocation (Transmission Control Block)
+          - kernel's internal data structure that stores everything about a TCP connection
+          - `connection object`
+          - Only assign a `TCB` after 3-time handshakes
+  - **4-way handshakes(goodbyes)**
 
 # 算法与数据结构番外
 
