@@ -1195,6 +1195,46 @@ Test-NetConnection 192.168.10.31 -Port 9092
           - `connection object`
           - Only assign a `TCB` after 3-time handshakes
   - **4-way handshakes(goodbyes)**
+    - **Why do we need 4-way handshakes?**: TCP is full duplex, it needs both side to confirm termination
+    -  FIN = 1, seq = u
+    -  ACK = 1, seq = v, ack = u + 1
+    -  FIN = 1, ACK = 1, seq = w, ack = u + 1
+    -  ACK = 1, seq = u + 1, ack = w + 1
+    -  TIME-WAIT
+   -  **Why do we need TIME-WAIT**
+      -  need to reliably terminate TCP connections
+      -  so to make sure the other side actually received our last `ACK = 1, seq = u + 1, ack = w + 1`, if didn't receive we can resend.
+      -  Without it, Linux might create a new connection on this port, and this port might receive obsolete data, which is not right.
+   -  **What could be the reason that MySQL servers experience large amount of TIME_WAIT**
+      -  MySQL use short TCP connections, afterwards, system will recycle resources. 
+      -  Because of huge amount of requests, there are alot of connections.
+      -  If programmer didn't do `mysql.close`, MySQL will invoke `wait_timeout` mechanism, many connections will be in `TIME-WAIT` states. 
+  -  Use Wireshark or `tcpdump` to sniff packets.
+  -  **How does an OS removes a TCP connections**
+     -  A TCP connection = a TCB (Transmission Control Block)
+     -  when a FIN/ACK/FIN/ACK happens, kernel updates TCB state
+     -  when app calls `close`
+        -  removes the FD from the process FD tbale
+        -  decrements refcount on the socket
+        -  kernel cannot free TCB yet, because it may still be waiting for ACK , transimitting FIN, waiting in TIME_WAIT, draining buffers
+     -  kernel clesn socket buffers (sk_buff)
+        -  outing send buffers are freed, ACKed receive buffers are freed
+        -  this release memory in TCP send queue, TCP receive queue
+     -  Kernel removes TCB from connection tbales
+        -  TIME_WAIT finished, for active closer
+        -  removes the TCB from has tables
+        -  removes routing cache entries
+        -  free memory allocated for the TCP control block
+     -  Time wheel entries and retransmission timers removed
+        -  RTO, Delayed ACK Timers, Keepalive timer, TIME_WAIT expiry timer, ...
+     -  Memory is freed, (the actual remove)
+        -  `kfree(tcp_sock);`
+  
+
+-  **UDP, UDT, QUIC**
+   -  all UDP connections (User Datagram Protocol)
+   -  no gurantees, so support unicast and multicast
+   -  UDT and QUIC are very new.
 
 # 算法与数据结构番外
 
