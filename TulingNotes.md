@@ -40,6 +40,7 @@
     - [Kafka 日志索引详解](#kafka-日志索引详解)
     - [Kafka 功能扩展](#kafka-功能扩展)
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
+  - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -1229,12 +1230,119 @@ Test-NetConnection 192.168.10.31 -Port 9092
         -  RTO, Delayed ACK Timers, Keepalive timer, TIME_WAIT expiry timer, ...
      -  Memory is freed, (the actual remove)
         -  `kfree(tcp_sock);`
-  
 
 -  **UDP, UDT, QUIC**
    -  all UDP connections (User Datagram Protocol)
    -  no gurantees, so support unicast and multicast
    -  UDT and QUIC are very new.
+
+## BIO实战、NIO编程与直接内存、零拷贝深入辨析
+- **Socket**
+  - What is a socket? an *abstraction layer*, between *Application Layer* and *TCP Layer*
+  - provided by OS. 
+    - ![socket](./Socket_example.png)
+  - **Short** connection: A TCP connection that only exists briefly and then closes.
+    - An application level pattern, not a protocol feature.
+    - Open a TCP connection -> send one request -> receive one response -> immediately close the connections
+    - Opposite to long connection
+  - **Long** connection: 
+    - Socket connection stays, no matter whether it is in use or not.
+  - When you have alot of data to send, use Long Connections, otherwise use short connection. But Http1.1 and Http2, Http3(based on QUIC) might be using Long connection as default.
+- **Blocking IO**
+  - why is blocking? 2 parts
+    - When a server is ready, its main thread just stays there waiting (while loop) for connections,
+    - When a connection is established, it is there (blocked) waiting for request from client. New connections on the socket cannot be handled. 
+  - Always used in conjuction with Threads and ThreadPool
+  - New thread for connection, request and response.
+    - All read and writes, have to be blocked within a thread.
+    - 1:1 relationship to number of clients visit. Waste thread, which is precious resources in Java. 
+  - We can also use ThreadPool to manage request,
+    - each thread could handle multiple thread.
+    - But if there are many long blocking calls concurrently. Then all requests **have to wait**, huge problems.
+  - *RPC framework (with BIO)*: 
+    - ![RPC framework](./RPC_architecture.jpeg)
+- **NIO, New IO**
+  - NIO, is buffer oriented, made up of  `Selector`, `Channel`, `buffer`
+  - Non-Blocking:
+    - Normal IO `read` or `write`, thread will be blocked. 
+    - NIO does not have to wait, that is why it can manage multiple `Channel`
+  - `Reactor`
+    - IoC
+    - one manager, caters to many customers
+    - ![reactor](./reactor.png)
+  - `Selector`:
+    - Many channels can be registered under the same `Selector`
+    - One thread to manage this `Selector`
+  - `Channel`:
+    - Implements `SelectableChannel`
+    - `ServerScoketChannel`: all TCP connections listening channel, support UDP and TCP, used by application to implement IO multiplexing.
+    - `SocketChannel`: TCP Socket listening channel, one socket is equivalent to one unique TCP connection (src ip : port , dest ip : port)
+  - `Buffer`:
+    - An array supporting read an write between App and SocketChannel
+    - `capacity`
+    - `limit`: in write-mode, equals `capacity`, under read-mode becomes the `position` in write-mode
+    - `position`: the next place to read or write in the current buffer
+    - `flip()`: switch from write to read mode, `limit = position; position = 0`
+  - ![NIO-Architect](./nio_archi.png) 
+  - What is a `SelectionKey`:
+    - represents the identity of a `SelectableChannel` for a `Selector`. 
+    - Created during registration, e.g. `serverSocketChannel.register(selector,SelectionKey.OP_ACCEPT);`
+    ```java
+    public class SelectionKeyImpl extends AbstractSelectionKey {
+      final SelChImpl channel;
+      public final SelectorImpl selector;
+      private int index;
+      private volatile int interestOps;
+      private int readyOps;
+
+      SelectionKeyImpl(SelChImpl var1, SelectorImpl var2) {
+          this.channel = var1;
+          this.selector = var2;
+      }
+      // other methods
+    }
+    ```
+    - Cancelled `SelectionKeys` will not be immediately removed from `Selector`, but added to `cancelledKeys`, which will be removed during next `select()`
+    - This is why when we want to use a `SelectionKey`, we need to check `isValid` first
+    - `interestOps`
+      - `OP_READ`: react only when *OS* read buffer contains data.
+      - `OP_WRITE`: react only when *OS* write buffer is available, which is almost all the time for normal usecases. So normally this op is not necessary (otherwise wasting CPU dealing with all the `OP_WRITE` events), unless we are doing write intensive tasks, such as file downloading, buffer could be full, then this op becomes necessary. Also remeber to clear this op after write.
+      - `OP_CONNECT`: for client to invoke `SocketChannel.finishConnect()` if necessary. This is because sometimes `SocketChannel.connect()` many not return `true` immediately, so need to retry or `finishConnect`
+        ```java
+          private void  doConnect() throws IOException{
+            /*非阻塞的连接*/
+            if(socketChannel.connect(new InetSocketAddress(host,port))){
+                socketChannel.register(selector,SelectionKey.OP_READ);
+            }else{
+                socketChannel.register(selector,SelectionKey.OP_CONNECT);
+            }
+          }
+        ``` 
+      - `OP_ACCEPT`: only for server (to accept a coonection request)
+      - `ServerSocketChannel` -> `OP_ACCEPT`
+      - Server `SocketChannel` -> `OP_READ`, `OP_WRITE`
+      - Client `SocketChannel` -> `OP_READ`, `OP_WRITE`, `OP_CONNECT`
+  - **Single Reactor Framework**: 
+    - all I/O `accept()` `read()`, `write()`, `connect` are on the **SAME** thread.
+    - But for current framework, not only IO are on Reactor thread, non-IO operations are on I/O thread too. So we need to separate non-IO logics from IO operations to improve speed. Therefore we introduce ThreadPools
+  - **Single Reactor + Worker Threadpool Framework**:
+    - So often the implementation is single thread `Reacotr` +  worker `ThreadPools`
+    - Sometimes if there are thousands of connection, NIO thread becomes overloaded and bottle neck.
+    - ![reactor-worker](./reactor_worker.png)
+  - **Reactor with Threadpool + Worker Threadpool Framework**
+    - one Reactor threadpool, each reactor thread has its own `Selector`, event and logic loops
+    - one `mainReactor` but multiple `subReactor`
+      - `mainReactor` accepts client connection requests, and pass the `SocketChannel` to `subReactor`, which will take over communication with client.
+      - `subReactor` usually lives in a threadpool
+      - `subReactor` will be in charge of I/O `read()`, the data read will be process by threads from worker threadpool. If there is data to write back, it will also be in charge of the I/O `write()` operation.
+    - ![multi-reactor](./nultiple_reactor.png)
+
+- **Extra Questions**:
+  - If Tomcat is non-blocking IO, why does Spring MVC still do one thread per request model?
+    - NIO at the network layer != Non-blocking at the application layer.
+    - SpringMVC is based on Servlet Specification: *Thread-per-request*, *Synchronous semantics*, *blocking*
+    - Tomcat uses NIO for network operations, but Spring MVC remains blocking because it sits on top of the Servlet API, which is a synchronous, thread-per-request model.
+    - True end-to-end non-blocking requires WebFlux (Reactor), which was built separately because MVC cannot be made non-blocking without breaking the Servlet model.
 
 # 算法与数据结构番外
 
