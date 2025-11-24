@@ -41,6 +41,7 @@
     - [Kafka 功能扩展](#kafka-功能扩展)
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
+  - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -1237,6 +1238,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
    -  UDT and QUIC are very new.
 
 ## BIO实战、NIO编程与直接内存、零拷贝深入辨析
+
 - **Socket**
   - What is a socket? an *abstraction layer*, between *Application Layer* and *TCP Layer*
   - provided by OS. 
@@ -1248,6 +1250,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - **Long** connection: 
     - Socket connection stays, no matter whether it is in use or not.
   - When you have alot of data to send, use Long Connections, otherwise use short connection. But Http1.1 and Http2, Http3(based on QUIC) might be using Long connection as default.
+
 - **Blocking IO**
   - why is blocking? 2 parts
     - When a server is ready, its main thread just stays there waiting (while loop) for connections,
@@ -1261,6 +1264,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - But if there are many long blocking calls concurrently. Then all requests **have to wait**, huge problems.
   - *RPC framework (with BIO)*: 
     - ![RPC framework](./RPC_architecture.jpeg)
+
 - **NIO, New IO**
   - NIO, is buffer oriented, made up of  `Selector`, `Channel`, `buffer`
   - Non-Blocking:
@@ -1322,13 +1326,16 @@ Test-NetConnection 192.168.10.31 -Port 9092
       - `ServerSocketChannel` -> `OP_ACCEPT`
       - Server `SocketChannel` -> `OP_READ`, `OP_WRITE`
       - Client `SocketChannel` -> `OP_READ`, `OP_WRITE`, `OP_CONNECT`
+  
   - **Single Reactor Framework**: 
     - all I/O `accept()` `read()`, `write()`, `connect` are on the **SAME** thread.
     - But for current framework, not only IO are on Reactor thread, non-IO operations are on I/O thread too. So we need to separate non-IO logics from IO operations to improve speed. Therefore we introduce ThreadPools
+  
   - **Single Reactor + Worker Threadpool Framework**:
     - So often the implementation is single thread `Reacotr` +  worker `ThreadPools`
     - Sometimes if there are thousands of connection, NIO thread becomes overloaded and bottle neck.
     - ![reactor-worker](./reactor_worker.png)
+  
   - **Reactor with Threadpool + Worker Threadpool Framework**
     - one Reactor threadpool, each reactor thread has its own `Selector`, event and logic loops
     - one `mainReactor` but multiple `subReactor`
@@ -1337,12 +1344,347 @@ Test-NetConnection 192.168.10.31 -Port 9092
       - `subReactor` will be in charge of I/O `read()`, the data read will be process by threads from worker threadpool. If there is data to write back, it will also be in charge of the I/O `write()` operation.
     - ![multi-reactor](./nultiple_reactor.png)
 
+- **DirectBuffer**
+  - Every TCP Socket has `SO_SNDBUF` and `SO_RECVBUF`
+  - When Java does IO, it will have to invoke `write()` to `SO_SNDBUF`.
+    - However the address (of data that we want to send) that we pass to C library via JNI cannot be obsolete.
+    - In Java, due to GC, this address **very possibly** will be obsolete.
+    - So wee need to put it in a place that cannot be GC-ed. Off-Heap. basically, `DirectBuffer`
+    - If we use HeapBuffer, e.g. `ByteBuffer.allocateDirect(1024)`, 
+      - JVM must copy heap data -> temp off-heap buffer
+      - Pass that off-heap buffer to `write()`
+    - If instead we use `ByteBuffer.allocateDirect(1024)`
+      - Then NIO can pass the **same off-heap pointer** directly OS. no extra copy, higher throughput IO.
+    - That is why all high performance JAVA IO frameworks use driect buffers: Netty, Aeron, Kafka (uses mmap + direct buffers), Disruptor, Chronicle Queue/Map
+    - OffHeap `DirectBuffer` is not affected by Minor GC, only affected when we do Full GC.
+      ```
+      +----------------------------+
+      | Java object (on-heap)      |
+      | class: DirectByteBuffer    |
+      |   - attachment             |
+      |   - capacity               |
+      |   - address (long*) ----+  |
+      +----------------------------+
+                                    \
+                            +------------------------+
+                            | Off-heap native memory |
+                            | allocated by Unsafe    |
+                            +------------------------+
+
+      ```
+    - The On-heap object is tiny (16 - 32 bytes), the real memory lives Off-heap
+
+- **Zero Copy (revisited)**:
+  - Reduce the needs for
+    - Unnecessary copying by CPU from one place to another, and
+    - the Unnecessary context switching by CPU (from user space to kernel space, e.g.) when carrying out above tasks.
+  - Clasic Copy:
+    - `buffer = file.read(...)`
+    - `Socket.send(buffer)`
+    - ![Classic Copy](./classic_copy.png)
+    - `read` and `send` are both OS commands, which involves context switching between User space and Kernel space.
+    - 4 Context Switching + 4 Copies(2 DMA copies, 2 CPU copy)
+  - MMAP:
+    - just map the data from hard disk to application buffers, without actually copying.
+    - ![MMAP](./MMAP.png)
+    - Java NIO `FileChannel.map()`
+  - `sendfile`:
+    - When sendfile is called, DMA copy data to kernel buffer
+    - Then DMA copy kernel buffer to socket buffer, but not the data, just the address and length to socket bugger.
+    - DMA straight away copy the data from kernel buffer to NIC. 
+    - 3 or 2 Copies; 2 , 2 DMA copies that is for sure, if DMA supports copying using address and length; otherwise CPU has to copy every data to SOCKET BUFFER, which is one more CPU copy
+    - ![sendfile](./sendFile.png)
+    - `File Pages -> Socket send queue(SKB), no copying of file data -> NIC DMA -> network`
+    - in JAVA NIO, `FileChannel.transferTo`, `FileChannel.transferFrom`
+  - `splice`:
+    - Doesn't need DMA hardware support
+    - When data reaches kernel buffer, a pipe is established between kernel buffer and socket buffer.
+    - pointer of page cache (where file data lives) are transfered between kernel buffer to socket buffer
+    - O(number_of_pages) **NOT** O(bytes)
+    - `sendfile` is a specialized faster version of splice, 
+    - ![splice](./splice.png)
+    - `File Pages -> Pipe buffers -> Socket send queue (pointer passing only) -> NIC DMA -> network`
+    - no Java equivalent, not supported in JAVA
+  - `tee`:
+    - duplicates pipe buffer reference from one pipe to another without copying data.
+    ```
+      Pipe A                     Pipe B
+      ---------                 ---------
+      | page1 |                 |       |
+      | page2 |     tee() ----> |       |
+      | page3 |                 |       |
+      ---------                 ---------
+
+    ```
+    ```
+            Pipe A                     Pipe B
+      ---------                 ---------
+      | page1 | --------+------>| page1 |
+      | page2 | ----+---+------>| page2 |
+      | page3 | --+----+------->| page3 |
+      ---------   |             ---------
+                  | (same exact kernel pages)
+
+    ```
+    - Amazing for a linux proxy or packet sniffer
+      - consider a transparent proxy: `client -> proxy -> server`
+      - you want to forward all traffic to the server
+      - without tee you have to read to userspace, copy to buffer, write to socket, write to disk
+      - With tee, you just have to do
+      ```
+        socket → pipe1 → splice (to server)
+                    ↘
+                    tee → pipe2 → splice (to disk)
+      ```
+      - Everything stays in kernel, zeor copy, zero wakeups, zero user space overhead
+      - This is how high-performance monitoring proxies like `tcplogger`, `nginx mirror` and some HFT proxies work.
+    - No Java equivalent, only C/C++/Rust
+
+- **Zero Copies in Netty**
+  - **DirectBuffers**, off heap
+  - `CompositeByteBuf`, merge multiple `ByteBuf` into one logical `ByteBuf`, reduce copies across `ByteBuf`
+  - `FileChannel.transferTo` (sendfile)
+
 - **Extra Questions**:
-  - If Tomcat is non-blocking IO, why does Spring MVC still do one thread per request model?
+  - **If Tomcat is non-blocking IO, why does Spring MVC still do one thread per request model?**
     - NIO at the network layer != Non-blocking at the application layer.
     - SpringMVC is based on Servlet Specification: *Thread-per-request*, *Synchronous semantics*, *blocking*
     - Tomcat uses NIO for network operations, but Spring MVC remains blocking because it sits on top of the Servlet API, which is a synchronous, thread-per-request model.
     - True end-to-end non-blocking requires WebFlux (Reactor), which was built separately because MVC cannot be made non-blocking without breaking the Servlet model.
+  - **For a brand new company issued laptop (Dell-A), how does it query google server, for the first time， on company campus?**
+    - First DHCP DORA (DISCOVER, OFFER, REQUEST, ACK)
+    - 1) Dell-A generates the following message: 
+        ```
+          Source IP: 0.0.0.0
+          Dest IP: 255.255.255.255
+          Dest MAC: FF:FF:FF:FF:FF:FF
+          Source MAC: laptop MAC
+        ```
+        - this frame goes into a **switch** -> broadcast to all ports, including router
+        - this frame goes to wifi -> wifi AP sends them through the tunnel to the wireless controller
+    - 2) Wirelsees Controller receives DCHP DISCOVER
+      - it decrypts and decapsulates wi-fi frmaes
+      - place the client into correct VLAN
+      - Acts as DHCP relay `DHCP DISCOVER -> DHCP server` unicast
+    - 3) DHCP server sends DHCP OFFER back
+      - contains IP Address
+      - subnet mask
+      - DNS servers
+      - internal default gateway
+      - lease time
+      - domain serach suffix 
+      - (sometimes) securityh classification
+    - 4) Wireless controller passes DHCP OFFER back to AP -> laptop
+    - 5) Dell-A then sends DHCP REQUEST (broadcast)
+      - AP -> tunnels it
+      - Controller -> relays it via DHCP relay -> DHCP server
+    - 6) DHCP server sends DHCP ACK
+      - Your assigned IP
+      - Gateway
+      - DNS
+      - Lease time
+      - Domain
+      - MTU (corporate Wi-Fi sometimes sets 1400)
+      - Possibly PXE parameters or host-class attributes
+      - Wireless controller relays this back to laptop.
+    - 7) Laptop now has IP but no internet yet
+    - 8) User passes the corporate Wi-Fi autho (802.1X etc)
+    - 9) User types `google.com` and press `Enter`
+    - 10) Chrome normalizes the url to `https://google.com`
+    - 11) Chrome then check its own cache
+      - Browser DNS Cache
+      - HTTP Cache (maybe you already have parts of Google cached, not possible in this case)
+      - HSTS lists (force HTTPS for know sites)
+      - if it finds a fresh cached answer, it might skip DNS, or network, but first time, not possible
+    - 12) DNS: "what ip is google.com?"
+      - Chrome asks the OS resolver, "give me the ip for google.com"
+      - OS checks caches first (hosts file)
+      - OS DNS cache
+      - if not found, ask DNS Server
+    - 13) Laptop sends DNS query
+      - usually UDP port 53
+      - Destination IP = DNS server you got from DHCP, likely an internal UBS DNS or resolver.
+      - if your laptop doesnt know the gateways mac yet, it ARPS for it (Link-layer detail (ARP / Neighbor Discovery))
+        - Broadcast: " who has gateway IP? Tell me you MAC"
+        - Gatway replies with its MAC
+      - Now your DNS packet can be sent to the gateway.
+    - 14) Decide the route: Is that IP local or external?
+      - OS checks routing table
+      - is google's IP in my subnet? NO
+      - so send to default gateway
+    - 15) TCP onnection to Goolge (or QUIC)
+      - Option A: HTTP/3 over QUIC (UDP 443)
+        - Laptop sends QUIC initail packet to google ip UDP port 443.
+        - QUIC includes encryption handshake
+      - Option B: HTTPS over TCP 443
+        - if QUIC isn't possible Chrome uses TCP:
+        - TCP 3-way handshake
+          - `SYN` ->
+          - `SYN - ACL` ->
+          - `ACK`
+    - 16) TLS handshake (encryption + identity)
+      - After transport is up (QUIC or TCP), Chrome does TLS:
+        - Agree on encryption keys
+        - verify you are talking to Google
+      - Chrome sends "ClientHello"
+      - Google responds "ServerHello + Certificate"
+        - Certificate is signed by trusted CA
+        - Cert matches google.com
+        - Not expired / not revoked. 
+      - Handshake completes -> encryption keys ready
+    - 17) HTTP request: "GET /"
+      - Now chrome sends the actual request.
+    - 18) Google CDN responds
+      - google edge server replies with
+      - HTML for the main apge
+      - Headers telling caching rules, cookies, security policies, etc
+    - 19) Browser parases HTML and triggers many more requests
+      - Chrome build the DOM Tree
+      - Builds CSSOM tree
+      - RUNS JS
+      - dicsover more resources (CSS files, JS bundle, images, fonts, tracking pixels, api calls)
+      - May reuse the same HTTP/2/3 connection
+      - or open additional connections if needed
+      - and caches aggressively
+    - 20) Rendering on Screen
+      - DOM + CSSOM -> Render Tree
+      - layout (compute positions)
+      - Paint
+      - GPU compositing
+  - Summary:
+    - Typing google.com → page shown
+    - Browser cache check
+    - OS / browser DNS cache check
+    - DNS query to corporate resolver → get IP
+    - ARP gateway if needed
+    - Transport connect (QUIC 443 or TCP 443)
+    - TLS handshake + cert verify
+    - HTTPS GET request
+    - HTML response
+    - Many sub-requests (CSS/JS/images/APIs)
+    - Render pipeline → pixels on screen
+
+## 深入Linux 内核理解epoll
+- Linux 5 I/O model
+  - **Sync**
+    - blocking io (JDK Blocking IO)
+    - nonblocking io
+    - io multiplexing (JDK NIO)
+    - signal driver io (sigio)
+  - **async**
+    - async io.
+- Linux IO multiplexing programming
+  - **FileDescriptor** 
+    - in linux everything is file, including drives, mouse, everyhting is file
+    - FileDescriptor is an index, of a per-process kernel table called the file descriptor table. 
+    ```
+      Process File Descriptor Table:
+      FD 0 → stdin
+      FD 1 → stdout
+      FD 2 → stderr
+      FD 3 → socket to 10.1.1.5:8080
+      FD 4 → open file: /var/log/app.log
+      FD 5 → pipe
+      ...
+    ```
+    - Linux has 2 more levels of metadata
+    ```
+    Process
+      → File Descriptor Table (FD → File Table Entry)
+            → File Table Entry (open file description)
+                    → Inode (metadata of file on disk)
+    ```
+    - File Descriptor Table (per process), each entry contains
+      - A pointer to a file table entry
+      - Access mode (read/write)
+      - File offset(for seekable files)
+      - Flags (O_APPEND, O_NONBLOCK)
+    - File Table Entry (shared)
+      - contains, current file offset (shared by duplicated FDs)
+      - open flags
+      - Pointer to the inode
+    - Inode (filesystem - level)
+      - Owner
+      - Permissions
+      - Timestamps
+      - Block locations
+    - In Java `FileDescriptor`(int fd) is direct mapping of linux FD integer.
+      - `FileInputStream` -> wraps FD for a disk file
+      - `SocketChannel` -> wraps FD for a socket
+      - `Pipe` -> wraps FD for a pipe (used for cross thread signaling, useful for waking up selectors)
+  
+  - **`select`**
+    - `int select (int n, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);`
+    - monitors 3 types of file descriptors: read, write, except
+    - blocked, until any fd is ready (meaning have data, can read, can write, or encounter exceptions), or timeout
+    - when `select` return, we can travers `fdset` again to find the ready `fd`
+    - very dumb traversing, don't even know which fd is ready, have to traverse every set.
+    - Can only monitor up to 1024 fds. Low performance, but supported by alomost all platforms
+
+  - **`poll`**
+    - `int poll (struct pollfd *fds, unsigned int nfds, int timeout);`
+    - no 1024 limit, pollfd is a pointer (linkedlist)
+    - after returning, still need to traverse `pollfd` to find the ready `fd`, still dumb
+
+  - **`epoll`**
+    - `int epoll_create(int size)`
+      - JDK `selector = Selector.open()`
+      - size only for reference, only a recommended initial size, 
+      - occupies a fd value (int), 
+      - have to call `epoll.close`, otherwise fd memory leaks.
+
+    - `int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)；`
+      - JDK `scoketChannel.regsiter()`
+      - `epfd`, the fd of `epoll_create`
+      - `op`, 3 enums, `EPOLL_CTL_ADD`, `EPOLL_CTL_DELL`, `EPOLL_CTL_MOD`
+      - `fd`, the fd to be monitored
+      - `epoll_event`, what kind of event kernel must monitor/listen to, got enums such as `EPOLLIN` (read available), `EPOLLOUT` write available.
+  
+    - `int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout);`
+      - wait for io events from `epfd`, returning max `maxevents` events.
+      - JDK `selector.select()`
+  
+  - **What are the differences between select, poll, and epoll**
+    - all of them are implementations of IO-Multiplexing
+    - Max connections:
+      - select -> 1024
+      - poll -> linked list, no limit
+      - epoll -> no limit
+    - IO problems when number of FD increases:
+      - select -> traversing all FDs, slow
+      - poll -> same, slow
+      - epoll -> implemented by `callback` function from `fd`, so only active socket would inovke `callback`, when there are not a lot of active sockets, epoll does not have the slow problem like the above, but when every socket is active, we might have a performance problem.
+    - Message transfer method
+      - select -> kernel need to copy message to user space, CPU copy
+      - poll -> same
+      - epoll -> share space between kernel and user space. 
+  
+  - **Epoll mechanism under the hood, why is it so powerful**
+    - how does PC accepts data from network? Network NIC, DMA copy to kernel, then CPU read.
+    - But how does CPU knows that data is ready? using `interrupt`
+    - CPU invoke soft interrupt, then go back to working, then ksoftirqd detects soft interrupt and starts to receive packets using `poll`, then send to different protocol for porecssing (IP, TCP), and then put the packets inside user socket recv queue
+    - when a process is doing `recv`, it is blocked ,and placed on the waiting queue of a socket
+    - When data comes, it will be unparked and added to CPU schedule again.
+    
+    - The question is how do we monitor multiple sockets:
+      - **select**. default implementations, add current process to all monitoring socket; every wake up requires removal of process from each monitored sockets, very costly. And still you don't know exactly who woke you up, so you need to traverse socket fd all again.
+      - **epoll**
+        - separation of concerns, `epoll_ctl` add all monitoed sockets into `epfd` (created by `epoll_create`), then use `epoll_wait` for data
+        - `epfd` corresponds to `eventpoll` object, which has its own waiting queue, and `rdlist` (ready list).
+        - instead of adding process to waiting queue of the monitored socket, we add `eventpoll` to the waiting queue of socket. 
+        - we add process to the waiting queue of `eventpoll`
+        - when ever rdlist changes, `eventpoll` informs process in its waiting list, with `rdlist`, then process knows exactly which sockets are changed. 
+        - in `eventpoll` struct, `rdlist` is a `deque`, to monitor sockets, it uses redblack tree, for ease of searching, and avoid repeated add. 
+
+- **Additional**:
+  - How many ways for inter process communications?
+    - signal
+    - pipe
+    - shared memory
+    - FIFO queue
+    - Message QUEUE
+    - unix domain socket (docker.sock, podman.sock)
+
 
 # 算法与数据结构番外
 
