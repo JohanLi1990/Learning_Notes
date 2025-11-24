@@ -1556,7 +1556,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - Browser cache check
     - OS / browser DNS cache check
     - DNS query to corporate resolver → get IP
-    - ARP gateway if needed
+    - ARP gateway MAC address if needed
     - Transport connect (QUIC 443 or TCP 443)
     - TLS handshake + cert verify
     - HTTPS GET request
