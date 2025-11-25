@@ -42,6 +42,7 @@
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
+  - [Netty使用和常用组件辨析](#netty使用和常用组件辨析)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -1630,12 +1631,12 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - `int epoll_create(int size)`
       - JDK `selector = Selector.open()`
       - size only for reference, only a recommended initial size, 
-      - occupies a fd value (int), 
+      - occupies a fd value (int), returns the fd, which belongs to the newly created `event_poll` instance.
       - have to call `epoll.close`, otherwise fd memory leaks.
 
     - `int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)；`
       - JDK `scoketChannel.regsiter()`
-      - `epfd`, the fd of `epoll_create`
+      - `epfd`, the fd of `event_poll` (created by `epoll_create`)
       - `op`, 3 enums, `EPOLL_CTL_ADD`, `EPOLL_CTL_DELL`, `EPOLL_CTL_MOD`
       - `fd`, the fd to be monitored
       - `epoll_event`, what kind of event kernel must monitor/listen to, got enums such as `EPOLLIN` (read available), `EPOLLOUT` write available.
@@ -1669,12 +1670,17 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - The question is how do we monitor multiple sockets:
       - **select**. default implementations, add current process to all monitoring socket; every wake up requires removal of process from each monitored sockets, very costly. And still you don't know exactly who woke you up, so you need to traverse socket fd all again.
       - **epoll**
-        - separation of concerns, `epoll_ctl` add all monitoed sockets into `epfd` (created by `epoll_create`), then use `epoll_wait` for data
+        - separation of concerns, `epoll_ctl` add all monitoed sockets into the wait-queue of `epfd` (created by `epoll_create`), then use `epoll_wait` for data
         - `epfd` corresponds to `eventpoll` object, which has its own waiting queue, and `rdlist` (ready list).
-        - instead of adding process to waiting queue of the monitored socket, we add `eventpoll` to the waiting queue of socket. 
-        - we add process to the waiting queue of `eventpoll`
-        - when ever rdlist changes, `eventpoll` informs process in its waiting list, with `rdlist`, then process knows exactly which sockets are changed. 
-        - in `eventpoll` struct, `rdlist` is a `deque`, to monitor sockets, it uses redblack tree, for ease of searching, and avoid repeated add. 
+        - For every socket to monitor (registered by `epoll_ctl(ADD, fd)`), we create a node called `epitam`
+        - instead of adding process to waiting queue of the monitored socket, we add `epitam` to the waiting queue of socket, AND we add `epitam` to the RB tree of `event_poll`, for easy searching and updates later
+        - we add process to the waiting queue of `event_poll`
+        - when socket has incoming data, `epitam` will be woken up, and added to `rdlist`
+        - when ever rdlist changes, `event_poll` informs process in its waiting list, with `rdlist`, then process knows exactly which sockets are changed. Process then consumes from head of the `rdlist`, and pops from back. 
+        - in `eventpoll` struct, `rdlist` is a doubly-linked list, to monitor sockets, it uses redblack tree, for ease of searching, and avoid repeated add.
+        - Time Complexity for dealing with Socket that is ready : O(1)
+        - O(logN) for adding epitam to rbtree
+        - O(logN) for looking up epitam, this usually happens when you want to change the `interestOps` of a thread to socket, i.e. doing `epoll_ctl(MOD, fd)`
 
 - **Additional**:
   - How many ways for inter process communications?
@@ -1684,6 +1690,52 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - FIFO queue
     - Message QUEUE
     - unix domain socket (docker.sock, podman.sock)
+
+## Netty使用和常用组件辨析
+- Core Components:
+  - Bootstrap: client BootStrap, and ServerBootStrap
+  - Channel: just like Java NIO channel, just like a literal channel, where data can pass in or out.
+  - EventLoop can be seen as a thread, EventLoopGroup can be seen as a threadpool
+- Event and ChannelHandler, ChannelPipeline
+  - channel pipeline holds all the channel hanlders, 
+  - events travel through pipelines, getting process by one or more ChannelHandler
+- EventLoop and EventLoopGroup in depth
+  - async processing meaning, we can manage many connections with just a few threads
+  - EventLoopGroup assigns a Eventloop to the new Channel (round robin)
+  - Architecture: ![eventloopGroup](./EventLoopGroup.png)
+  - Channel created -> ELG register channle to EventLoop -> Channle uses the eventloop to handle all IO events in its lifecycle
+- Channel:
+  - Very close to NIO socket.
+  - Channel Unregistered, Channel Registered, ChannelActive, ChannelInactive
+  - important channel apis, `evnetloop()`, `pipeline()`, `isActive`, `localAddress`, `remoteAddress`, `write`, `flush`, `writeAndFlush`
+- ChannelPipeline and ChannelHandlerContext
+  - Every Channel has its own pipeline, 
+  - Every ChannelPipeline holds a linkedlist (doubly) of ChannelHandlers
+  - `ChannelInboundHandler` and `ChannelOutboundHandler`, each with different bit mask
+  - Important method: `addFirst`, `addBefore`, `addAfter`, `adddLast`
+- ChannelHandlerContext
+  - Like a Node in Linkedlist, but hold much more information
+  - **Event propagations**
+    - if you call `channle.write()` or `ChannelPipeline.fireChannelRead()`, they will propagate through the entire ChannelPipeline, but - if you invoke `ChannelHandlerContext.write`, it will start propagating from the current `ChannelHandlerContext` (Node)
+- **ChannelHandler**
+  - Main Compoennt
+  - we can customize our `ChannelInboundHandler` and `ChannelOutboundHandler`
+  - we can also extends `ChannelInboundHandlerAdapter` or `ChannelOutboundHandlerAdapter` to override methods we need.
+  - `ChannelOutboundHandler` read method, is to send a `read()` command, i.e. "I want more data"
+    - real implementation in `HeadContext` (`DefaultChannelPipeline`), bridge from pipeline -> channel implementation
+    - `Unsafe.beginRead` transport-specific logic to prepare or perform the actual read from the OS. 
+  - If you want FullDuplex handling of data (both inbound and outbound) use `ChannelDuplexHandler`
+- Sharing Handler
+  - we can share handler in multiple different Channel/ChannelPipeline. 
+  - just use the `@ChannelHandler.Sharable`
+  - if you use `Sharable` make sure the `ChannelHandler` is threadsafe
+- Resource management (to avoid memory leak)
+  - In Java NIO, we need buffer (`ByteBuffer.allocate(1024)`) to write and read data
+  - Netty needs buffer too, so we need to **release buffer** to avoid memory leak.
+  - In order to do that we have `TailContext` and `HeadContext`
+  - Internet -> `Head/HeadContext` -> `My handlers` -> `Tail`
+  - it is nice, but sometimes if we have `Inbound handler` or `outbound handler` that did not propagate events or data to the next handler, we will never get to release the buffer.
+  - That is why we have a default, memory safe, implementation `SimpleChannelInbounHandle`, which has a `finally` clause to release buffer (`channelRead`)
 
 
 # 算法与数据结构番外
