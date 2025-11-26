@@ -1737,6 +1737,71 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - it is nice, but sometimes if we have `Inbound handler` or `outbound handler` that did not propagate events or data to the next handler, we will never get to release the buffer.
   - That is why we have a default, memory safe, implementation `SimpleChannelInbounHandle`, which has a `finally` clause to release buffer (`channelRead`)
 
+- **Channel Option**
+  - ChannelOption.SO_BACKLOG
+    - controls the max number of completed incoming connections that the OS can queueu before your server accepts them
+    - Linux OS has 2 queues, SYN Queue + Accept Queue, SO_BACKLOG limits the accept queue
+  - SO_REUSEADDR
+    - allows binding to a port even if old sockets on that port are in
+      - `TIME_WAIT`
+      - `CLOSE_WAIT`
+      - Other 'lingering' TCP states
+      - allow server to restart quickly
+  - SO_REUSEPORT: really port shraing across process, parallel accept on multi-core CPUs.
+  - SO_KEEPALIVE
+  - SO_LINGER, TCP_NODELAY
+
+- **ByteBuf**
+  - equavalent to NIO ByteBuffer, 
+  - heapBuffer() vs driectBuffer()
+  - we need to release resources: `ReferenceCountUtil.release()`
+
+- **Solving message coalescing, and partial packet**
+  - Nagle algorithm, many packets are sent together. 
+  - Data input larger than socket SND_BUFFER
+  - **Ways to resolve this**
+    - `LineBasedFrameDecoder`, `DelimiterBasedFrameDecoder` to handler
+
+- `ChannelRead` vs `ChannelReadComplete`
+  - Pseudocode:
+  ```
+    epoll says FD is readable ->
+    Netty enters read loop ->
+      - read some bytes
+      - decode messages
+      - fire channelRead() per message
+    read loop ends (no more bytes available) ->
+    fire channelReadComplete()
+
+  ```
+  - why does Netty separate the 2?
+    - because `channelReadComplete()` is the right place to 
+      - flush accumulated writes (e.g. autoread=false patterns)
+      - Request next read if autoread is off
+      - Batch outbound writes for performance
+      ```java
+            @Override
+        public void channelReadComplete(ChannelHandlerContext ctx) {
+            ctx.flush();
+        }
+
+      ```
+
+- **CODEC**: used at networking level to encode/decode protocol frame; understands framing
+  - encoder, decoder
+  - `ByteMessageDecoder`
+  - `MessageToMessageDecoder`
+
+- **SERDES**: serialize/deserialize general objects, used at Messaging/storage(Kafka, DB logs); doesn't understand framing
+  - JDK Serdes really sucks. Performance terrible
+  - `Avro`, `Kryo`, `MessagePack`, `Protobuf`
+  - Codec usually comes before Serdes, it extracts payload; Serdes convert payload into domain object.
+  - `TCP bytes → [CODEC: framing] → payload bytes → [SerDes] → Order object`
+
+- **实战** 
+  - Simple HTTP Server with TLS, all handled by Netty libs.
+    - `OptionalSSLHandler`
+
 
 # 算法与数据结构番外
 
