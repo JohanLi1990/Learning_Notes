@@ -60,6 +60,7 @@
   - [阻塞队列BLOCKINGQUEUE实战及原理分析](#阻塞队列blockingqueue实战及原理分析)
   - [线程池实战及原理分析](#线程池实战及原理分析)
   - [ForkJoinPool实战及原理分析](#forkjoinpool实战及原理分析)
+  - [深入理解并发原子性、可见性、有序性与JMM内存模型](#深入理解并发原子性可见性有序性与jmm内存模型)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -2533,6 +2534,56 @@ Test-NetConnection 192.168.10.31 -Port 9092
    -  Divide and Conquer
    -  Number of threads being (defualt) CPU logical processors number
    -  more suitable for huge parallel non-blocking task. 
+
+## 深入理解并发原子性、可见性、有序性与JMM内存模型
+- Summary of all concurrency bugs: Atomicity , Visibility, Ordering
+- **Atomicity**: all pass or all fail
+  - i++ is not atomic
+  - How to gurantee? `synchronized`, `Lock`, `CAS`
+  - Modify `long` on a 32 bits machine, the transaction is not atomic, unless you use volatile modifier. 
+- **Visibility**: will i see the latest value of a shared variable
+  - How to gurantee? `volatile`, `Unsafe.storeFence`, `synchronzied`, `lock`
+  - `storeFence` is an `intrinsicCandidate`, which will be replace with machine code/cpu instruction like `mfence` (platform dependent) at runtime
+    - so no JNI needed, no native calls to C/C++ libs, or OS system call, because JIT can emit machine code directly.
+- **Ordering**: Compilers sometimes does reordering to improve performances. 
+  - **Interesting observations**, the following code will *accidentally* trigger cache updates in thread:
+  ```java
+    while (flag) {
+      shortwait(10000); // wait (empty cpu spins for 10 ms, using System.nanoTime to keeptrack)
+    }
+  ```
+    - Why?
+      - nanoTime() burns a lot of CPU instructions -> more memory loads/store, more pressure on L1 and L2 cache -> frequent pipeline flushes on `rdtscp`, this can cause the cache line containing `flag` to be evicted, invalidated or reloaded from L2/L3
+      - Cache coherence traffic naturally happens when a thread is highly active, This increases the rate at which the core participates in MESI protocol traffic.
+      - Branch mispredictions → pipeline flushes → memory reloads
+      - JIT optimizations change depending on loop complexity:
+        - for a trivial loop `while(flag){}`, JIT quickly pulls `flag` into a register and never reloads it -> Gurantee to spin forever
+        - But if the loop contains native call(`nanoTime`), JIT cannot hoise the `flag` out
+          - Must honor potential side effect of native calss
+          - cannot optimize the loop into a pure spin
+          - must reload memory from time to time
+          - sometimes insert implicit memory barriers.
+  - How to gurantee? `volatile`, `storeFence`, `synchronzied`
+
+- **Java Memory Mode**, Java Concurrent/Multithreading Memory Model
+  - handles shared states in multithreaded scenarios.
+  - What does lock (`synchronized`) mean for ram:
+    - when acquiring lock, JMM invalidates the current thread local cache
+    - when releasing lock, JMM write local caches to main memory
+  - What does `volatile` mean for ram
+    - when writing to a `volatile` variable, JMM will write local cache to main memory
+    - when reading from `volatile` variable, JMM will invalidates local thread cache, and reads directly from main memory
+    - Based on the above definition, there are order gurantees in code. 
+    - **Why in DCL we need to add `volatile` keyword to singleton instance?**
+      - Because `new Singleton()` is essentailly 3 lines of code:
+        - `memory=allocate(); ctorInstance(memory); instance=memory`
+        - and the 2nd and 3rd instructions might get re-ordered.
+        - if it gets reordered, some threads will read a partially initialized or not yet initialized `Singleton`
+  - JMM memory fence startegy
+    - x86 implements `memfence` for `StoreLoad` 
+  - `Happens-Before`: the Java Memory Model’s visibility & ordering guarantee (**multi-thread** world)
+    - “If A happens-before B, then any thread must see the effects of A before B.”
+  - `As-If-Serial`: The compiler is free to reorder instructions as long as the final observable result is the same in a **single-threaded** program. This rule ignores concurrency completely.
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
