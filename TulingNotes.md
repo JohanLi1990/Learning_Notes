@@ -1737,7 +1737,20 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - Internet -> `Head/HeadContext` -> `My handlers` -> `Tail`
   - it is nice, but sometimes if we have `Inbound handler` or `outbound handler` that did not propagate events or data to the next handler, we will never get to release the buffer.
   - That is why we have a default, memory safe, implementation `SimpleChannelInbounHandle`, which has a `finally` clause to release buffer (`channelRead`)
+  - **Note: 🧠 Rule of Thumb,  If your handler**
+    - ✔ consumes the ByteBuf (e.g., transforms it, logs it, then discards):
+      ```
+        Do NOT retain.
+        Just let auto-release clean up.
+      ```
+    - ✔ forwards the original ByteBuf:
+        `YOU MUST retain().`
 
+    - ✔ is the very last inbound handler:
+      ```
+        If it forward → retain.
+        If it stops event → do not retain.
+      ```
 - **Channel Option**
   - ChannelOption.SO_BACKLOG
     - controls the max number of completed incoming connections that the OS can queueu before your server accepts them
@@ -2584,6 +2597,46 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - `Happens-Before`: the Java Memory Model’s visibility & ordering guarantee (**multi-thread** world)
     - “If A happens-before B, then any thread must see the effects of A before B.”
   - `As-If-Serial`: The compiler is free to reorder instructions as long as the final observable result is the same in a **single-threaded** program. This rule ignores concurrency completely.
+  - `Volatile` vs `M-E-S-I`
+    - `Volatile` = memory barriers = `lock`-prefixed instructions (`lock addl`, `lock xchg`, `lock cmpxchg`) , **or**, explicit fence instructions `mfence`, `sfence`.
+      - JIT will choose whichever machine instruction that is cheapest during runtime.
+      - **volatile write:** 
+        - requires a store-store barrier beofre
+        - a store-load barrier after
+        - JIT often compiles volatile store as
+        ```
+          mov [addr], reg
+          lock addl $0, [addr]    ; or mfence
+        ```
+        - the dummy lock addl forces the write to be visible to other cores
+      - **volatile read:**
+        - a load load barrier
+        - a load store barrier
+        - often implemented with an instruction like
+        ```
+          mov reg, [addr]
+          lfence               ; or lock-prefixed read
+        ```
+        - But sometimes reading a volatile doesn't need an actual lock, because x86 already has strong TSO rules — so the JIT inserts cheaper fences depending on optimization.
+    - `MESI`: **gurantees** a single consistent ownship of each cache line
+      - At any time, exactly one core can have a cache line in Modified (M) or Exclusive (E) state.Other cores must obtain permission to write.
+      - Eventual consistency (coherence) of caches
+      - ✘ BUT MESI does **NOT** gurantee:
+        - ordering of writes across different mem locations
+        - visibility of timing guarnatees
+        - prevention of reorderings
+        - happens-before semantics
+    - **Relationship:**
+      - MESI(hardware) makes sure that when the JVM flushes a volatile write using a fence, other cores actually see it and don’t hold stale cache lines.>
+      - The JMM ensures that the JVM inserts fences and prohibits reorderings per Java Semantics
+      - so the JVM uses fences, and fences internally leverage coherence mechanisms like MESI, but volatile is **not MESI**, and MESI is not Java volatile in hardware
+        - e.g. `lock` triggers MESI invalidation , because it locks a cache line, and no other core can hold the line in `S` or `E` state. 
+        - e.g. `mfence` ensure all previous stores have reached a globally visible point. This means they cannot be stuck in store buffer - they must propagte through MESI to become visible.
+        - `lfence` ensure loads are not reordered
+        - `sfence` ensure store ordering. 
+        - MESI handles coherence.
+        - Fences enforce ordering.
+        - The combination gives you language-level memory semantics.
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
