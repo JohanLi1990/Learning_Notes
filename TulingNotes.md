@@ -61,6 +61,7 @@
   - [线程池实战及原理分析](#线程池实战及原理分析)
   - [ForkJoinPool实战及原理分析](#forkjoinpool实战及原理分析)
   - [深入理解并发原子性、可见性、有序性与JMM内存模型](#深入理解并发原子性可见性有序性与jmm内存模型)
+  - [CPU缓存架构详解](#cpu缓存架构详解)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -1768,7 +1769,33 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - **ByteBuf**
   - equavalent to NIO ByteBuffer, 
   - heapBuffer() vs driectBuffer()
+    - heap buffer lives on heap, is backed by an Array, 
+    - direct buffer lives in native memory (**not JVM managed memory**), via `Unsafe.allocateMemory()` or `DirectByteBuffer` via JNI:
+      ```
+    +--------------------------------------------+
+    |  JVM Process Virtual Address Space         |
+    |                                            |
+    |  +--------------+                          |
+    |  | Java Heap    |   (GC managed)           |
+    |  +--------------+                          |
+    |  +--------------+                          |
+    |  | Metaspace    |   (class metadata)       |
+    |  +--------------+                          |
+    |  +--------------+                          |
+    |  | Code Cache   |   (JIT compiled code)    |
+    |  +--------------+                          |
+    |                                            |
+    |  +--------------+                          |
+    |  | Direct ByteBuf Memory (native)  <---- not part of JVM "regions"  
+    |  +--------------+                          |
+    |                                            |
+    +--------------------------------------------+
+
+
+      ```
   - we need to release resources: `ReferenceCountUtil.release()`
+    - refcount has to be zero for it to be released
+    - you can use `-Dio.netty.leakDetection.level=PARANOID` or `ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);` to detect leaks;
 
 - **Solving message coalescing, and partial packet**
   - Nagle algorithm, many packets are sent together. 
@@ -2637,6 +2664,73 @@ Test-NetConnection 192.168.10.31 -Port 9092
         - MESI handles coherence.
         - Fences enforce ordering.
         - The combination gives you language-level memory semantics.
+
+## CPU缓存架构详解
+- CPU caches are tiny storage space between CPU and main memory.
+  - L1 Cache (smallest and fastes)
+  - L2 Cache (larger and faster)
+  - L3 Cache (Largest and fast)
+  - each level stores data that belows one level below. 
+  - Temporal Locality, if a register is being used, then it might get used again recently
+  - Spatial Locality, if a register is being used, then chances are its neighbours are getting used.
+- CPU multicore architecture
+  ![multicore](./CPU-multicore.png)
+  - CPU read -> L1 -> L2 -> L3 -> main
+  - CPU wrie -> L1 --MESI--> L2 ---MESI---> L3
+  - What kind of problems does this lead to?
+    - Every core sees a copy of the SoT.
+    - if one core's copy changes, all copies must change
+    - There must be something to gurantee **coherence**
+- CPU Cache coherence approach/mechanisms
+  - Guranteed atomic operations
+  - Bus locking, using the LOCK# signal and the LOCK instruction prefix.
+  - Cache coherency protocols that ensure the atomic operations can be carried on cached data structures(cache lock);
+- CPU cache coherence implementation techniques:
+  - Bus snooping
+    - Write-invalidate
+    - Write-update
+  - Coherence Protocol: MSI, **MESI**, MOSI, MOESI, MERSI, MESIF, write-once, Synapse, Berkeley, Firefly, Dragon
+    - **MESI**: Modify, Exclusive, Shared, Invalid
+      - represents 4 states for the cache line
+    - False Sharing: when multiple thread from different cores are modifying **different** variables on the same cache line, there will be frequent **Invalid**, cache misses. Threads have to frequently fetch latest values from main memory, thus affecting performances.
+      - `ArrayBlockingQueue` has 3 members, `takeIndex`, `putIndex`, `count`; you modify one, you invalid all 3 members. 
+      - `Cache Line` size: 64 bytes
+      - How to avoid ?
+        - padding with random variables: 
+        ```java
+        class Pointer {
+            volatile long x;
+            //避免伪共享： 缓存行填充
+            long p1, p2, p3, p4, p5, p6, p7;
+            volatile long y;
+        }
+
+        ```
+        - use `@sun.misc.Contended` from java 8
+        - use `ThreadLocal`,
+- High performance queue `Disruptor`
+  - **Pain point**:
+    - JUC blocking queue, uses ReentrantLock
+    - In high performance system, to ensure producers do not produce too quick, only Bounded Blocking queue is chosen.
+    - And locking affects performance greatly!
+    - Bounded queue also uses array, but using array will lead to false sharing!
+  - Reference: [Github LMAX disruptor](https://github.com/LMAX-Exchange/disruptor)
+  - Approach:
+    - RingBuffer, of size 2^n, use bit shifting to move to place ,index is long type. 
+    - Lockless design; Each producer and consumer will **apply** position to operate in the RingBuffer, read/write directly from that position, whole process use atomic variable CAS to gurantee thread safety.
+    - use padding lines to resolve false sharing.
+    - use event driven producer/consumer patterns.
+  - **RingBuffer**
+    ![RingBuffer](./ringBuffer.png)
+    - Array, index = sequence & (entries.length - 1)
+    - What if all positions are filled, 0th position will be overwritten.
+    - Will there be data loss?
+      - No worries, there is `WaitStrategy`
+  - **WaitStrategy**
+    - `BlockingWaitStrategy`, LOCKING , limited CPU resources, and cases where latency and throughput not important
+    - `BusySpingWait`,CAS , always retry, reduces context switching, recommended for cases when thread are binded to one particule core.
+    - `YieldingWaitStrategy`, CAS + yield + CAS, balancing resource scarcity and performance.
+  - **Practical**: `TODO`
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
