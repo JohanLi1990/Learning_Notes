@@ -1827,7 +1827,6 @@ Test-NetConnection 192.168.10.31 -Port 9092
         }
 
       ```
-
 - **CODEC**: used at networking level to encode/decode protocol frame; understands framing
   - encoder, decoder
   - `ByteMessageDecoder`
@@ -1842,6 +1841,71 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - **实战** 
   - Simple HTTP Server with TLS, all handled by Netty libs.
     - `OptionalSSLHandler`
+  - **Day 3**: ByteBuf 
+    - Direct vs Heap
+      - ByteBuf, refCount(), released when refCount() == 0
+      - `readerIndex`, `writerIndex`
+      - `duplicate()`, `slice()`, `retainedSlice()`, all operates on underlying `ByteBuf`
+    - Pooled vs Unpooled
+      - Pooled ByteBuf, maintains a pool of ByteBuf; can be reused, efficient memory allocation
+      - Unpooled, always create new instance of ByteBuf
+  - **Day 4**: Backpressure handling / Msg coalescing , partial message
+    - `ctx.read()` starts a read loop, you are telling Netty, "Please drain as much as you think is reasonable from the socket."
+      - So Netty may:
+        - call kernel read() multiple times
+        - decode many frames
+        - fire many channelRead events
+        - and only then fire one channelReadComplete
+    - `AUTO_READ=false` means: Netty won't read unless you call ctx.read.
+    - **Never block the IO Thread, always offload slow business logic**
+      - Correct Approach:
+        - IO thread: decode -> enqueue -> immediately return
+        - Business threads:
+          - dequeue one message
+          - process slowly (200ms)
+          - schedule `ctx.read()` on the IO thread.
+      - This gives us non-blocking IO, controlled pacing via business logic, fast ingestions of bursts
+      - **risk!:** Memory ballooning, need for explicit queue bound and overflow policies.
+    - Client side backepressure mechanism: `isWritable`
+      - Netty tracks channel writability based on:
+        - outbound Netty buffer size
+        - hi/lo watermarks
+        - OS send buffer occupancy
+        - TCP window size from the server
+        - **when server is slow:**
+          - server OS receive buffer fills
+          - TCP window shrinks
+          - client OS send buffer fills
+          - Netty outbound buffer hits high watermark
+          - client sees `isWritable`= false
+        - **This is wirelevel backpressure**
+    - **Stateful** send loop, what goo citizen netty client looks like
+      - `channelActive`: start sending while channel is writable
+      - if `isWritable == false`:
+        - pause sending
+      - when `isWritable == true`:
+        - resume sending from where you left off
+      - **all done in the same event loop**, no extra threads needed.  
+      - **client should obey isWritable, otherwise they will overflow the pipeline**
+    - E2E backpressure chain:
+    ```
+      Slow business logic (server)
+            ↓
+      Server inbound queue grows
+            ↓
+      Server OS receive buffer fills
+            ↓
+      TCP window shrinks
+            ↓
+      Client OS send buffer fills
+            ↓
+      Netty outbound buffer hits high watermark
+            ↓
+      Client isWritable=false
+            ↓
+      Client application pauses sending
+    ```
+
 
 
 # 算法与数据结构番外
