@@ -43,6 +43,8 @@
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
   - [Netty使用和常用组件辨析](#netty使用和常用组件辨析)
+  - [Netty面试难题分析](#netty面试难题分析)
+  - [Netty实战](#netty实战)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -1838,7 +1840,96 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - Codec usually comes before Serdes, it extracts payload; Serdes convert payload into domain object.
   - `TCP bytes → [CODEC: framing] → payload bytes → [SerDes] → Order object`
 
-- **实战** 
+## Netty面试难题分析
+- **NIO Selector cpu 100% bug, how does Netty resolve that？**
+  - Bug itself has been fixed in JDK 11+, and modern verison of linux.
+  - But defensive logic is still there:
+  ```Java
+  // NioHandler.java --> select method
+                long time = System.nanoTime();
+                if (time - TimeUnit.MILLISECONDS.toNanos(timeoutMillis) >= currentTimeNanos) {
+                    // timeoutMillis elapsed without anything selected.
+                    selectCnt = 1;
+                } else if (SELECTOR_AUTO_REBUILD_THRESHOLD > 0 &&
+                        selectCnt >= SELECTOR_AUTO_REBUILD_THRESHOLD) {
+                    // The code exists in an extra method to ensure the method is not too big to inline as this
+                    // branch is not very likely to get hit very frequently.
+                    selector = selectRebuildSelector(selectCnt);
+                    selectCnt = 1;
+                    break;
+                }
+  ```
+  - **Note the performance optimization technique of `selectRebuildSelector`**, 
+    - we want the critical path which is `select` (parent method) to be optimized by C2 compiler (inlining)
+    - if we include a branch that is rarely reached in `select`, the method size might get too large to be inlined, thus 99.999% of code 
+    - Why selectRebuildSelector() is not inlined:
+      - Keeping the hot loop small allows the JVM to inline it fully.
+      - A rare slow path inside the hot method would exceed JIT thresholds.
+      - It improves:
+        - CPU branch prediction
+        - Instruction cache locality
+        - JVM optimizations (escape analysis, loop optimizations)
+        - This is intentional "**cold-path splitting**" used by all high-performance Java frameworks.
+
+- **How do we support one million of TCP Long connections, with single machine, with Netty?**
+  - From 3 perspectives, **Hardware/OS level**, **Netty/Code level**, **JVM level**
+  - **Hardware level/OS level**
+    - one default size of socket buffer is 4k, so we need 8k per connection (sendbuffer , receivebuff)
+    - 1 mil connections * 8 k = 8G, so for ram, we need at least 16G ram to begin with.
+    - At **OS** level:
+      - check `ulimit -n`, which limits the number of files a process can open at a time.
+      - need to set this to at least `ulimit -n 1000000` if we want to support 1M sockets opened at the same time
+      - if the above operation failed, need to update the soft limit, and hard limit from `/etc/security/limits.conf`
+        - `* soft nofile 1000000`
+        - `* hard nofile 1000000`
+      - Also need to update `/etc/pam.d/login`
+        - `session required /lib/security/pam_limits.so`
+      - check the system level maximum number of files that can be opened from `cat /proc/sys/fs/file-max`, if it is smaller than 1 million:
+        - `vi /etc/sysctl.conf`
+        - add `fs/file_max=1000000`
+        - `sysctl -p`
+
+  - **Netty** level
+    - Boss EventLoopGroup + Worker Eventloop Group, Boss group focus on general new IO events (handshakes, authorizations, authentications), Worker Group focus on handling event (business logics) for individual connection; Optimize the number of threads used for EventLoopGroup.
+    - Optimize the HeartBeat mechanism
+      - Need to detect obsolete/idle connections, remove them if necessary to avoid OOM.
+      - Use Netty's built-in `IdleStateHandler`, detects read-idle, write-idle, and readwrite-idle.
+    - Reduce TCP send and recv buffer size, when msg size is not big
+    - Use Netty PooledBuf to reuse ByteBuf so that we do not have to
+    - Use `FlowControllChannelHandler` to do rate lmiting in `ChannelActive()`; if the rate hits a threashold, do `ctx.close()`
+
+  - **JVM** level: GC optmizations
+    - SERVER side GC is going to lead to many clients connection broken + backlog building up.
+    - When Server is back from GC there might be tons of clients sending data and doing reconnection, and that might break the server.
+    - So GC goal
+      - Throughtput
+      - latency
+      - Heap occupancy
+      - Principles:
+        - Try to reclaim as much as possible during MINOR GC
+        - Throuhgput Latency, and Heap Occupancy cannot get all, must choose between Latency and THroughput based on your business needs. 
+
+- **What is Level Trigger, and what is Edge Triggered**
+
+  Level-triggered (LT):
+  - As long as the FD remains readable/writable, epoll_wait keeps returning the event.
+  - If the application does not read all data, it will be notified again next time.
+  - select() and poll() are LT.
+  - epoll supports LT by default.
+
+  Edge-triggered (ET):
+  - epoll_wait notifies only when the state transitions from "not ready" → "ready".
+  - If you do not fully drain the socket (read until EAGAIN), you may never get another notification.
+  - ET is more efficient because it reduces repeated wakeups for the same readiness state.
+
+  JDK NIO:
+  - Java's Selector uses epoll in LT mode internally.
+
+  Netty Epoll:
+  - Netty’s native epoll transport uses ET mode for read/write events, but includes its own logic to drain buffers to avoid missing events.
+
+
+## Netty实战 
   - Simple HTTP Server with TLS, all handled by Netty libs.
     - `OptionalSSLHandler`
   - **Day 3**: ByteBuf 
