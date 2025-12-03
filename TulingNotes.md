@@ -1923,7 +1923,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - ET is more efficient because it reduces repeated wakeups for the same readiness state.
 
   JDK NIO:
-  - Java's Selector uses epoll in LT mode internally.
+  - Java's Selector uses epoll in LT mode internally; but at API level, there is a `selected-key set` mechanism; JDK will not re add the FD until app consume the event and remove the key from selectedKeys. So it is PSEUDO ET.
 
   Netty Epoll:
   - Netty’s native epoll transport uses ET mode for read/write events, but includes its own logic to drain buffers to avoid missing events.
