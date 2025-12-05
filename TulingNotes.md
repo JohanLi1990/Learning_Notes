@@ -44,6 +44,7 @@
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
   - [Netty使用和常用组件辨析](#netty使用和常用组件辨析)
   - [Netty面试难题分析](#netty面试难题分析)
+  - [Netty 源码一](#netty-源码一)
   - [Netty实战](#netty实战)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
@@ -1928,6 +1929,17 @@ Test-NetConnection 192.168.10.31 -Port 9092
   Netty Epoll:
   - Netty’s native epoll transport uses ET mode for read/write events, but includes its own logic to drain buffers to avoid missing events.
 
+## Netty 源码一
+- How Server is booted via ServerBootStrap:
+  - ServerBooStrap init Channel
+  - register channel with its own boss ELG.
+  - start one EL from ELG:
+    - runIO information
+    - runAllTask:
+      - invokeHanlders -> Add ServerBootStrapAcceptor to handle new client connections
+      - bind to ip and port
+      - fire channel active -> fire read if auto read is true
+[Part 1 netty](./Netty1-drawing.drawio.svg)
 
 ## Netty实战 
   - Simple HTTP Server with TLS, all handled by Netty libs.
