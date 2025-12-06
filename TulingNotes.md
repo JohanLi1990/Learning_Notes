@@ -44,7 +44,7 @@
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
   - [Netty使用和常用组件辨析](#netty使用和常用组件辨析)
   - [Netty面试难题分析](#netty面试难题分析)
-  - [Netty 源码一](#netty-源码一)
+  - [Netty 源码](#netty-源码)
   - [Netty实战](#netty实战)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
@@ -1929,17 +1929,36 @@ Test-NetConnection 192.168.10.31 -Port 9092
   Netty Epoll:
   - Netty’s native epoll transport uses ET mode for read/write events, but includes its own logic to drain buffers to avoid missing events.
 
-## Netty 源码一
-- How Server is booted via ServerBootStrap:
+
+## Netty 源码
+- Netty High Level architecture, boss-worker pattern
+![Booss-worker](./Netty_High_level.png)
+
+- [Part I detailed flow](./Netty1-drawing.drawio.svg)
   - ServerBooStrap init Channel
   - register channel with its own boss ELG.
-  - start one EL from ELG:
-    - runIO information
-    - runAllTask:
-      - invokeHanlders -> Add ServerBootStrapAcceptor to handle new client connections
-      - bind to ip and port
+  - start one **Server EL** from Boss-ELG:
+    - `runIO` tasks:
+      - run loops on IO events, if no io events return;
+      - if there is io event process it, process `SelectionKey`
+      - normally at the beginning, there is no events; even if there is , it will not be handled because there is no handler yet. 
+    - `runAllTask`: Execute tasks via EL from `taskQueue`
+      - At the beginning, a few tasks are already in the queue. 
+      - invokeHanlders -> invoke ServerBootStrap.init ->Add `ServerBootStrapAcceptor` to handle new client connections -> remove the current handler
+      - bind to ip and port (use `invokeLater` to add the task `fireChannelActive` to EL)
       - fire channel active -> fire read if auto read is true
-[Part 1 netty](./Netty1-drawing.drawio.svg)
+
+- [Part II detailed flow](./Netty2-drawing.drawio.svg)
+  - Client initialize `BootStrap`
+  - Client send connection request to Server -> **Server EL** detects via `runIo`
+    - `processSelectedKeys` -> fireChannelRead in `ServerSocketChannel`
+    - `ServerBootStrapAcceptor` handles fireChannelRead -> add initializer from user code , register chanel with child ELG (workerGroup)
+    - Start one **Worker EL**:
+      - `runIO` tasks: initially no tasks.
+      - `runAllTask`
+        - Follow the same registration process above, but with less tasks in `runAllTask`: only adding child handlers
+    - subsequently loop, start processing other io event like read.
+
 
 ## Netty实战 
   - Simple HTTP Server with TLS, all handled by Netty libs.
