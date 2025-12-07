@@ -1382,7 +1382,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
 
 - **Zero Copy (revisited)**:
   - Reduce the needs for
-    - Unnecessary copying by CPU from one place to another, and
+    - Unnecessary copying by CPU from *kernel space* to *userspace*, and
     - the Unnecessary context switching by CPU (from user space to kernel space, e.g.) when carrying out above tasks.
   - Clasic Copy:
     - `buffer = file.read(...)`
@@ -1447,7 +1447,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - No Java equivalent, only C/C++/Rust
 
 - **Zero Copies in Netty**
-  - **DirectBuffers**, off heap
+  - **DirectBuffers**, off heap, we hold the byte by reference (memory address) and we just read/write from address. 
   - `CompositeByteBuf`, merge multiple `ByteBuf` into one logical `ByteBuf`, reduce copies across `ByteBuf`
   - `FileChannel.transferTo` (sendfile)
 
@@ -1774,7 +1774,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - heapBuffer() vs driectBuffer()
     - heap buffer lives on heap, is backed by an Array, 
     - direct buffer lives in native memory (**not JVM managed memory**), via `Unsafe.allocateMemory()` or `DirectByteBuffer` via JNI:
-      ```
+    ```
     +--------------------------------------------+
     |  JVM Process Virtual Address Space         |
     |                                            |
@@ -1789,16 +1789,20 @@ Test-NetConnection 192.168.10.31 -Port 9092
     |  +--------------+                          |
     |                                            |
     |  +--------------+                          |
-    |  | Direct ByteBuf Memory (native)  <---- not part of JVM "regions"  
+    |  | Direct ByteBuf Memory (native)  <---- not part of JVM "regions"  , but part of Java Process
     |  +--------------+                          |
     |                                            |
     +--------------------------------------------+
-
-
-      ```
+    ```
+  - HeapBuffer takes more time to read/write, but less time to allocate
+  - DirectBuffer takes less time to read/write, but more time to allocate
   - we need to release resources: `ReferenceCountUtil.release()`
     - refcount has to be zero for it to be released
     - you can use `-Dio.netty.leakDetection.level=PARANOID` or `ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);` to detect leaks;
+  - Use of ByteBuf Pool
+    - DirectBuffer alloc and unalloc is very time consuming
+    - so we use a pool to preallocate some **buffer** beforhand
+    - Rsizing: before 4M (default threshold); after 4M, just plus 4M. 
 
 - **Solving message coalescing, and partial packet**
   - Nagle algorithm, many packets are sent together. 
@@ -1860,6 +1864,10 @@ Test-NetConnection 192.168.10.31 -Port 9092
                     break;
                 }
   ```
+  - `selectRebuildSelector`, not only recreates Selector, but also transfers all `SelectionKeys` from old selector to new Selector
+  - Note how `selectRebuildSelector` is triggered by `selectCnt`? `selectCnt` is normally reset to 1 when the event is a normal event (Read, Write, Accept); however if `selector` is waken up with non-sense, it can grow to very large. 
+
+
   - **Note the performance optimization technique of `selectRebuildSelector`**, 
     - we want the critical path which is `select` (parent method) to be optimized by C2 compiler (inlining)
     - if we include a branch that is rarely reached in `select`, the method size might get too large to be inlined, thus 99.999% of code 
