@@ -65,6 +65,7 @@
   - [ForkJoinPool实战及原理分析](#forkjoinpool实战及原理分析)
   - [深入理解并发原子性、可见性、有序性与JMM内存模型](#深入理解并发原子性可见性有序性与jmm内存模型)
   - [CPU缓存架构详解](#cpu缓存架构详解)
+  - [并发编程面试总结](#并发编程面试总结)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
   - [How is a bean constructed](#how-is-a-bean-constructed)
@@ -2252,7 +2253,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - ThreadLocal Design
   - Each Thread owns a ThreadlocalMap,
   - A ThreadLocalMap is `Map<WeakReference<ThreadLocal>, value>`
-  - We use `WeakReference` here because in our **Thread logic**, we definitely have a strong reference to the same `ThreadLocal` object.
+  - We use `WeakReference` here because in our **Thread logic**, we definitely have a strong reference to the same `ThreadLocal` object. So when we lose the strong reference, we want the key to be auto gc-ed
   - ThreadLocalMap is not a java 8 HashMap, it is a java 7 HashMap, It is using generic `Array` + `LinkedList` structure.
 - Under what circumstances would ThreadLocal cause memory leak?
   - When we lose the strong reference in our code, we will **not likely** have any memory leak, because `ThreadLocal.expungStaleEntries` method
@@ -2275,8 +2276,42 @@ Test-NetConnection 192.168.10.31 -Port 9092
       });
     }
   ```
+- Why ThreadLocal may cause memory leak:
 
-  - Food for thought today: why Java requires child class to call `super()`, when parent does not have a default constructor(e.g. it only has parameterized constructors)
+  *scene 1*
+
+  ```
+  [GC Roots]
+    |
+    └─> [Thread T]
+          |
+          └─> [ThreadLocalMap M]
+                |
+                └─> table[i] = [Entry E]
+                          (key)   = WR(null)
+                          (value) ⇒ [BigAppObject V]
+  ```
+
+  *scene 2*
+
+  ```
+  [GC Roots]
+    |
+    ├─> [Class MyService]
+    |      |
+    |      └─(static TL) ⇒ [ThreadLocal TL]
+    |
+    └─> [Thread T]
+          |
+          └─> [ThreadLocalMap M]
+                |
+                └─> table[i] = [Entry E]
+                          (key)   = WR( [ThreadLocal TL] )
+                          (value) ⇒ [BigAppObject V]
+  ```
+  **Always remember:** GC reachability != Code Reachability
+
+- Food for thought today: why Java requires child class to call `super()`, when parent does not have a default constructor(e.g. it only has parameterized constructors)
   
   ```plain
     In Java, “object construction” means building real memory structure from top to bottom.
@@ -2902,29 +2937,104 @@ Test-NetConnection 192.168.10.31 -Port 9092
         ```
         - use `@sun.misc.Contended` from java 8
         - use `ThreadLocal`,
+
 - High performance queue `Disruptor`
   - **Pain point**:
     - JUC blocking queue, uses ReentrantLock
     - In high performance system, to ensure producers do not produce too quick, only Bounded Blocking queue is chosen.
     - And locking affects performance greatly!
-    - Bounded queue also uses array, but using array will lead to false sharing!
+    - Bounded queue also uses array, but updating array in a multithreaded environment will lead to false sharing!
+
   - Reference: [Github LMAX disruptor](https://github.com/LMAX-Exchange/disruptor)
+
   - Approach:
     - RingBuffer, of size 2^n, use bit shifting to move to place ,index is long type. 
     - Lockless design; Each producer and consumer will **apply** position to operate in the RingBuffer, read/write directly from that position, whole process use atomic variable CAS to gurantee thread safety.
     - use padding lines to resolve false sharing.
     - use event driven producer/consumer patterns.
+
   - **RingBuffer**
     ![RingBuffer](./ringBuffer.png)
     - Array, index = sequence & (entries.length - 1)
     - What if all positions are filled, 0th position will be overwritten.
     - Will there be data loss?
       - No worries, there is `WaitStrategy`
+
   - **WaitStrategy**
     - `BlockingWaitStrategy`, LOCKING , limited CPU resources, and cases where latency and throughput not important
     - `BusySpingWait`,CAS , always retry, reduces context switching, recommended for cases when thread are binded to one particule core.
     - `YieldingWaitStrategy`, CAS + yield + CAS, balancing resource scarcity and performance.
+  
+  - **How does Disruptor avoid false sharing in its ring buffer?**
+    - ❌ You cannot analyze Disruptor like a normal multi-producer queue.
+    - ✔ Disruptor enforces serialization of writes on the ring buffer slots.
+    - ✔ This serialization prevents two producers from writing **adjacent** array elements at the same time.
+    - ✔ Thus: NO false sharing on the ring buffer itself.
+    - ✔ All false-sharing-sensitive fields (sequences) are padded
+
   - **Practical**: `TODO`
+
+## 并发编程面试总结
+- [Why do we need to do `thread.start`, why not just directly do `run`](https://www.processon.com/view/link/5f02ed9e6376891e81fec8d5
+)
+  - note how JVM needs to call native method `start0`, put the new thread in wait, and bind java thread to the os thread, and then wake up the new thread to perform `run`.
+
+- How to gracefully stop a thread:
+  - let it run to completions
+  - if it is in sleep, try to interrupt
+
+- Why ThreadLocal might lead to memory leak:
+  - Always remember: `GC Root -> Thread -> ThreadLocalMap -> Entry<WeakReference<ThreadLocal>, Value>` as mental model
+  - so if you forgot to do `TL.remove()`, the value will be with the thread forever (even though you may not be able to reference it in code)
+  - Refer to [ThreadLocal mechanism](#threadlocal详解)
+
+- can volatile gurantee atomicity?
+  - for single ops. it can. Some single ops are not single at all. Like writing to a long(64bit) in a 32bit system. 
+
+- Under High concurrency, should we use `AtomicLong` or `LongAdder`
+  - `AtomicLong` uses CAS to update, cpu contentions
+  - `LongAdder` uses padded bins to collect updates, and then add together, reduces contentions 
+
+- When `synchronized` lightweight lock becomes invalid, does it straight away lead to thread suspension?
+  - Not really, it tries to get monitor right via CAS; if it cannot get monitor, then it becomes suspended.
+
+- Under high concurrency, which is faster, CAS or Synchronized:
+  - actually it depends, if read more than wright, CAS; else heavy write, use synchronized. 
+
+- why `wait` need to be inside `while` loop?
+  - need one more chance to decide whether to park the thread or not. 
+  - if someone calls `notifyAll`, then your thread wrongfully proceeds
+
+- `Synchronized` vs `ReentrantLock`: 
+  - performance wise actually `synchronized` 
+  - BUT `reentrantlock` has more function, conditions, fair lock, tryLock.
+
+- Why HashMap is not thread safe
+  - prior Java 7, array + linkedlist, inserting at head lead to infinite loop.
+  - after Java 8, inserting at the end, no infinite loop. But put is still unsafe. 
+    - no gurantee what will happen when two threads write to the same key, no volatile to gurantee happens before
+    - no locking when hash collide.
+    - no locking when doing resize, people may see a half old half new, weird map.
+  - use ConcurrentHashMap.
+
+- Talk about Copy-On-Write
+  - highly performant read, no locks, eventually consistency.
+  - when writing, copy the whole thing
+  - if the list is huge, then your write is not performant.
+  - [Copy-On-Write](https://www.yuque.com/u12222632/as5rgl/gautl3k31haap9p4?singleDoc#), dlmc
+
+- 10000 QPS at a 500ms API, how do you decide on the `corePoolSize`, `maxPoolSize`, number of machine?
+  - `maxPoolSize = num_cpu_core * ( 1 + IO_time / CPU_time)`
+  - [system design](https://www.yuque.com/u12222632/as5rgl/dao0xb1m57t5swom?singleDoc#), dlmc
+
+- When threadpool is full, what discard policy should we do?
+  - Custome Discard policy -> send all events to MQ
+
+- How to design a highly performant queue.
+  - bounded queue
+  - how to reduce contentions by using sequence (volatile), and how to reduce false sharing on heavily contended object, such as the sequence in this case.
+  - reactor pattern. 
+
 
 ## Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):
 - *Establish the wake-up contract before sleeping*, like what we did in `shouldParkAfterFailedAcquire`
