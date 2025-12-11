@@ -2074,7 +2074,15 @@ Test-NetConnection 192.168.10.31 -Port 9092
     ```
   - Summary: “Netty processes I/O synchronously in runIo(), but all lifecycle transitions (close, deregister, inactive) happen asynchronously in runAllTasks() — which is why exceptionCaught always happens before the channel actually dies.”
 
-  
+- **Day 7**: 
+  - For each order request, Gateway Order FSM:
+    - Creates & updates a small OrderContext in memory (current state, timestamps, routing info…)
+  - Decides what to do with each new event (NewOrder, DownstreamAck, Timeout, Cancel, etc.)
+  - Ensures every path ends in a well-defined state + client response (REJECTED, ACCEPTED, TIMED_OUT, TOO_LATE_TO_CANCEL, etc.)
+  - It’s not about FIX session, and not full OMS lifecycle.
+  - It’s just: “what is the state of this order inside this gateway, and what should I do now?”
+  - [Order Gateway Design Practice](/OrderGatewayDesign-updated.drawio.svg)
+
 
 # 算法与数据结构番外
 
