@@ -68,9 +68,11 @@
   - [并发编程面试总结](#并发编程面试总结)
   - [Key Takeawys, AQS Design philosopy (lock free until it is absolutely unavoidable):](#key-takeawys-aqs-design-philosopy-lock-free-until-it-is-absolutely-unavoidable)
 - [Spring源码专题](#spring源码专题)
-  - [How is a bean constructed](#how-is-a-bean-constructed)
-  - [AOP](#aop)
-- [](#)
+  - [Spring核心原理整体脉络](#spring核心原理整体脉络)
+    - [How is a Bean created:](#how-is-a-bean-created)
+    - [Constructor Inference](#constructor-inference)
+    - [AOP Big picture](#aop-big-picture)
+    - [Spring Transactions.](#spring-transactions)
 
 
 # 性能优化-JVM-MYSQL
@@ -3097,15 +3099,67 @@ Test-NetConnection 192.168.10.31 -Port 9092
 
 ---
 # Spring源码专题
-## How is a bean constructed
-- scan -> BeanDefinitionMap
-- instantiate using reflection, using no-args constructors
-- initialization (via PostConstruct)
-- preDestroy (run destroy algorithms)
 
-## AOP 
-- JDKproxy : via interface/implements
-- CGLib: via extends/inheritence
+## Spring核心原理整体脉络
 
+### How is a Bean created:
 
-#
+- Create BeanDefinitionMap:
+    - Find the directory of `AppConfig.class`;
+    - Scan all Java class, if there si `@Component`, `@Service`, then Spring take the class down in a `Map<String, Class>`
+    - key of the aforementioned Map will normally be className, with first letter decapitalized, unless otherwise specified in the annotation.
+  - Create a Bean instance via Constructor Inference.
+  - Find the members with `@Autowired`; Use spring to assign them values (Dependency injection)
+  - If the class implements `BeanNameAware`, `BranClassLoaderAware` or `BeanFactoryAware` Interface; if yes, then Spring has to trigger `setBeanName()`、`setBeanClassLoader()`、`setBeanFactory()` respetively. (Aware callback)
+  - Is there a method with `@PostConstruct`, if yes, then Spring will invoke the method.
+  - Is the class implementing `InitializingBean` interface; if yes, that means Spring has to invoke the `afterPropertiesSet()` method
+  - Last but not least, Does the class need AOP? if no, then finish, if yes, then Spring needs to construct a `Proxy` for the actuall instance. The proxy will be bean. (`BeanPostProcessor.beforeXXX`, `BeanPostProcessor.afterXXX`) 
+  
+  After the bean is constructed, it will be store inside a `Map<String, Object>`; key is the beanName, value is Bean. Next `getBean` call will get you the correct Bean
+
+### Constructor Inference
+- If only on constructor, then select that
+- else if there is a constructor with no params, select that
+- else select the constructor with `@Autowired.`
+
+### AOP Big picture
+- Does my bean need AOP?
+  - Find all Aspect Bean.
+  - For each method in Aspect Bean, is there `@Before`, `@After`
+    - if yes, does the `Pointcut` match the current class of Bean.
+      - if yes -> proceed with Proxy creation
+- AOP with cglib (3rd party)
+  - e.g. UserServiceProxy **extends** UserService
+  - rewrite the Parent method, and inject UserService as a target (delegate)
+  - when calling Bean(UserServiceProxy).test()
+    - First execute the Aspect Logic (`@Before` e.g.)
+    - then call `target.test()`
+  - Drawbacks, UserService cannot be `final`!
+
+- AOP with JDKProxy (JDK default)
+  - implements the Interface of `UserService`
+  - use reflection to invoke the method at runtime. 
+
+CGLib generates 3 files, JDKProxy only 1 -> JDK wins at runtime
+CGLib doesn't use reflection, JDKProxy uses reflection -> CGLIB slightly win , **BUT** JDK has optimized reflection under the hood. 
+Overall JDK wins! Use JDK whenever necessary.
+
+**When will AOP not work?**
+- Nested calls within the same class ----> can choose to Autowire itself, works, but not graceful
+- set `exposeProxy=True`, get the proxy via `AopCurrentContext`
+
+### Spring Transactions. 
+
+Follow the same initialization process as AOP 
+
+**When will transaction not works**
+- `Transactional` only handles `RuntimeException` by default ---> specify `@Transactional(rollbackfor = XXXException.class)`
+- Nested method class ---->AOP ways to resolve it
+- Multithreaded transaction ----> Transaction propagation fails from parent thread to child thread.
+  - a child thread has a new `ThreadLocal<Resource>`
+  - when child transaction fails, only child `ThreadLocal<Resource>` is rolledback, 
+  - Parent execution is not affected. 
+  - **Solution** ----> use 2pc, 3pc, SAGA (distributed transaction) **OR** programmatic transactions. (`TransactionSynchronizationManager.bindResource(dataSource, connectionHandler)`) 
+  [Hack for Transaction Propagtion problem in Spring](https://www.yuque.com/geren-t8lyq/ncgl94/bpkuxseeixw3gs06?singleDoc#)
+
+  [Spring Overall Architecture](./1.Spring源码VIP第八期流程图.png)
