@@ -45,7 +45,9 @@
   - [Netty使用和常用组件辨析](#netty使用和常用组件辨析)
   - [Netty面试难题分析](#netty面试难题分析)
   - [Netty 源码](#netty-源码)
-  - [Netty实战](#netty实战)
+  - [Netty实战 1](#netty实战-1)
+  - [Netty + Disruptor实战](#netty--disruptor实战)
+    - [Day 1 takeaway: Simple Disruptor (one producer one consumer)](#day-1-takeaway-simple-disruptor-one-producer-one-consumer)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -73,6 +75,7 @@
     - [Constructor Inference](#constructor-inference)
     - [AOP Big picture](#aop-big-picture)
     - [Spring Transactions.](#spring-transactions)
+  - [Spring手写核心源码](#spring手写核心源码)
 
 
 # 性能优化-JVM-MYSQL
@@ -1971,7 +1974,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
     - subsequently loop, start processing other io event like read.
 
 
-## Netty实战 
+## Netty实战 1
 
 - Simple HTTP Server with TLS, all handled by Netty libs.
   - `OptionalSSLHandler`
@@ -2085,6 +2088,40 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - It’s just: “what is the state of this order inside this gateway, and what should I do now?”
   - [Order Gateway Design Practice](/OrderGatewayDesign-updated.drawio.svg)
 
+## Netty + Disruptor实战
+
+### Day 1 takeaway: Simple Disruptor (one producer one consumer)
+
+- Backpressure is built-in (and unavoidable)
+  - Disruptor backpressure is enforced via gating sequences:
+  - producer cannot overwrite slots that consumers haven’t processed
+  - If any consumer is slow:
+    - the ring buffer fills
+    - the producer stalls (blocks/spins/yields depending on strategy)
+    - Disruptor never drops events by default — it forces the system to slow down.
+
+- Blocking work in handlers is dangerous
+  - Blocking IO (JDBC, REST, etc.) inside a handler:
+    - freezes that handler’s sequence
+    - becomes the slowest gating sequence
+    - eventually stalls the producer
+  - One slow handler can halt the entire pipeline.
+  - Rule: if a handler can block for “internet latency”, it does not belong on the Disruptor thread.
+
+- “Handing off to another thread” is not cheating
+  - Handoff does not increase throughput if downstream is slow.
+  - Its real purpose is:
+    - isolating slow stages (bulkheads)
+    - making backpressure explicit
+    - preventing IO latency from freezing critical coordination paths
+  - The mistake is not handoff — the mistake is unbounded handoff.
+
+- Performance lessons from your experiment
+  - Printing/logging inside onEvent destroys throughput.
+  - BlockingWaitStrategy is slower but CPU-friendly.
+  - Ring buffer size matters (too small hurts batching).
+  - JVM warmup matters.
+  - With minimal handler logic: ~12 million events/sec (≈83 ms for 1M events) is healthy and expected.
 
 # 算法与数据结构番外
 
@@ -3163,3 +3200,28 @@ Follow the same initialization process as AOP
   [Hack for Transaction Propagtion problem in Spring](https://www.yuque.com/geren-t8lyq/ncgl94/bpkuxseeixw3gs06?singleDoc#)
 
   [Spring Overall Architecture](./1.Spring源码VIP第八期流程图.png)
+
+## Spring手写核心源码
+
+- Handwritten Config Scan, and how BeanDefinitionMap is created
+- Handwritten `scan`
+- Handwritten `registerBeanPostProcessor`
+- Handwritten `preInstantiateSingleton` ---> `getBean`
+- Simulates AOP with `AutoProxyCreatorBeanPostProcessord`
+
+[Xushu Spring framework](https://gitee.com/lichenyang_b8d1/xushu-springframwrok/tree/main/src/main/java/com/xushu)
+```java
+    public XushuApplicationContext(Class<AppConfig> appConfigClass) throws Exception {
+        // 读取配置类(配置解析成beandefinition)
+        this.configClass=appConfigClass;
+        // 解析配置类的扫描包
+        scan(configClass);
+
+        // 注册beanPostProcessor
+        registryBeanPostProcessor();
+
+        // 一个个创建单例bean
+        preInstantiateSingletons();
+    }
+
+```
