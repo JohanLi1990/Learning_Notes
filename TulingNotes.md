@@ -48,6 +48,7 @@
   - [Netty实战 1](#netty实战-1)
   - [Netty + Disruptor实战](#netty--disruptor实战)
     - [Day 1 takeaway: Simple Disruptor (one producer one consumer)](#day-1-takeaway-simple-disruptor-one-producer-one-consumer)
+    - [Day 2 takeaway: Mutli consumer \& Backpressure](#day-2-takeaway-mutli-consumer--backpressure)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -2122,6 +2123,88 @@ Test-NetConnection 192.168.10.31 -Port 9092
   - Ring buffer size matters (too small hurts batching).
   - JVM warmup matters.
   - With minimal handler logic: ~12 million events/sec (≈83 ms for 1M events) is healthy and expected.
+
+### Day 2 takeaway: Mutli consumer & Backpressure
+
+- Consumer Graph semantics:
+  - `A -> B` means B is gated by A, not 'runs on the same thread'
+  - Each `EventHandler` runs on its **own thread** by default
+  - Ordering is enforced by sequence barrier. not thread confinement. 
+  ```
+  Disruptor = data-flow ordering
+  Netty = thread-confinement ordering
+  ```
+
+- Fan-out vs pipeline
+  - Path1: `Producer -> A -> B`
+  - Path2: `Producer -> C`
+  - Terminal gating sequences are B and C
+  - producer cursor is constrained by `min(sequece(B), sequence(C))`
+
+- What “backpressure” really means in Disruptor
+  - Producer can burst ahead up to ~ringSize sequences.
+  - Once slack is exhausted, producer blocks.
+  - Slow consumers drain backlog; producer resumes when capacity frees.
+  - This creates a burst → block → drain rhythm
+
+- Producer TPS vs slow consumer TPS (the subtle but critical point)
+  - Incorrect mental model: “Producer TPS must equal slowest consumer TPS”
+  - Correct mental model:
+    - Producer TPS is bounded by the slowest gating consumer.
+  - Over long-run average, producer TPS converges toward the slowest terminal path.
+  - Over short windows, TPS can be:
+    - higher (during burst)
+    - lower or zero (during block)
+    - Equality is an asymptotic property, not a per-window guarantee.
+
+- Lag is the truth signal
+  - For any consumer X: `lagX = producerCursor - consumerXSequence`
+  - Invariant: `ΔlagX = Δproducer - ΔconsumerX`
+  - If producerTPS > X-TPS → lag grows
+  - If producerTPS < X-TPS → lag shrinks
+  - Lag hovering near ringSize = producer is capacity-limited by X
+
+- Measuring correctly (hard-won lessons)
+  - **Do**:
+    - Measure **TPS from sequence deltas**, not counters
+    - Snapshot sequences once per interval
+    - Compute lag from the same snapshot
+  - **Avoid**:
+    - Per-event logging
+    - “get() then set(0)” counter resets
+    - Reading volatile sequences multiple times per calculation. (Too costly for CPU)
+    - Interpreting drain-phase metrics as steady state
+
+- Slow consumer simulation (important!)
+  - Empty loops can be JIT-eliminated
+  - volatile writes inside loops distort results (memory fences ≠ CPU work)
+  - **Good slow-work pattern**:
+    - Do real computation in a local variable
+    - Publish result once per event
+
+- Why producer TPS can be 0
+  - Producer TPS = 0 means:
+    - Ring is full
+    - Producer is blocked
+    - Consumers are draining
+This is expected, not a bug.
+
+**Summary**
+> Disruptor throughput is governed by gating sequence
+> 
+> The slowest terminal consumer bounds system throughput
+> 
+> The ring buffer allows short-term bursts, so producer TPS may fluctuate per window, but
+> 
+> long-run average converges to the slowest path
+
+**Another Takeaway**
+> Netty is a system Framework.
+> 
+> Disruptor is a dataflow primitive.
+> 
+> Netty brings data in safely; Disruptor process it deterministically.
+
 
 # 算法与数据结构番外
 
