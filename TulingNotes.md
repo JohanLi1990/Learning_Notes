@@ -77,6 +77,7 @@
     - [AOP Big picture](#aop-big-picture)
     - [Spring Transactions.](#spring-transactions)
   - [Spring手写核心源码](#spring手写核心源码)
+  - [Spring手写循环依赖](#spring手写循环依赖)
 
 
 # 性能优化-JVM-MYSQL
@@ -3308,3 +3309,27 @@ Follow the same initialization process as AOP
     }
 
 ```
+
+## Spring手写循环依赖
+- Problem: many beans has circular dependencies.
+  - Reason: when DI, bean is not fully initialized, no way out from circular depenedencies. 
+- How do we resolve this ?
+  - Three layers of caches.
+    - **first layer： singletonObjects**: Complete, initialized beans
+    - **second layer： earlySingletonObjects**: Incomplete, earlier beans.
+    - **Third layer: singletonFactories**: TODO
+  - Actually one layer of cache is enough: we just need to a way out from the circular dependency. We can have one layer cahce when a bean is first constructed.
+- What is drawback of using one layer of cache?
+  - two threads race condition
+  - if 2 threads calls `getBean`, 
+    - one thread process and add to layer one;
+    - the other calls `getBean` and got a uninitialized bean, all attirbutes are null.
+    - this will be problematic, and the bean returned is not usable
+  - How to solve this?
+    - `synchronized getBean()` ---> low performance, lock too coarse
+    - use singleton design pattern ---> DCL
+    - However DCL is still too coarse, that is why we need **2nd layer cache**
+    - together (DCL + 2nd layer) improve performance, provide another way out.
+- **The goal is to make sure**
+  - 2 threads that call `getBean(A)` will both get **The complete, initialized bean!**
+  - if there is a circular depency e.g. `A.b <---> B.a`, we allo `a` or `b` to be partially initialized to exit circular dependency. 
