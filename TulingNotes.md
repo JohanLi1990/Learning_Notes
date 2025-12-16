@@ -49,6 +49,7 @@
   - [Netty + Disruptor实战](#netty--disruptor实战)
     - [Day 1 takeaway: Simple Disruptor (one producer one consumer)](#day-1-takeaway-simple-disruptor-one-producer-one-consumer)
     - [Day 2 takeaway: Mutli consumer \& Backpressure](#day-2-takeaway-mutli-consumer--backpressure)
+    - [Day 3 takeaway: Netty refresher, I/O Threading \& Backpressure](#day-3-takeaway-netty-refresher-io-threading--backpressure)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -2207,6 +2208,68 @@ This is expected, not a bug.
 > Netty brings data in safely; Disruptor process it deterministically.
 
 
+### Day 3 takeaway: Netty refresher, I/O Threading & Backpressure
+
+- Netty backpressure is edge-triggered, not continuous
+  - channelWritabilityChanged() fires only when writability flips true → false (crossed high watermark), false → true (dropped below low watermark)
+  - Writing more data does not trigger more events unless a flip occurs
+  - One big burst → typically two events only
+
+- Write buffer watermarks define a hysteresis band
+  - High watermark (default): 64KB
+  - Low watermark (default): 32KB
+  - Flip rules:
+    - pendingBytes > HIGH → channel becomes unwritable
+    - pendingBytes < LOW → channel becomes writable
+  - This prevents flip-flopping and stabilizes throughput
+
+- BytesBeforeUnwritable and BytesBeforeWritable are derived values
+  - `BytesBeforeUnwritable` → how many more bytes can be enqueued before hitting HIGH
+  - `BytesBeforeWritable` → how many bytes must drain before dropping below LOW
+  - Values depend on:
+    - size of last write
+    - TCP socket drain timing
+    - buffer expansion and alignment
+
+- Continuous backpressure requires a write-resume loop
+  - To see repeated flips:
+    - write until isWritable == false
+    - pause
+    - resume writing when isWritable == true
+    - This creates a stable producer ↔ consumer feedback loop
+
+- ByteBuf ownership is strict (this caused the refCnt error)
+  - Golden rule:
+    - Once you pass a ByteBuf to ctx.write(...), you no longer own it.
+  - Correct patterns:
+    - Echo only → ctx.write(msg) and do NOT release
+    - Observe + forward → fireChannelRead(msg) and do NOT release
+    - Write + forward/store → retain() for extra ownership
+    - Double-release or use-after-release leads to IllegalReferenceCountException.
+
+- Pipeline design determines buffer lifecycle
+  - Multiple inbound handlers must agree on:
+    - who writes
+    - who propagate
+    - who releases
+  - SimpleChannelInboundHandler auto-releases
+  - ChannelInboundHandlerAdapter requires manual ownership discipline
+
+- Netty backpressure ≈ Disruptor backpressure (conceptual mapping)
+
+  | Netty                     | Disruptor                      |
+  | ------------------------- | ------------------------------ |
+  | ChannelOutboundBuffer     | RingBuffer                     |
+  | High watermark            | Cursor catches gating sequence |
+  | Low watermark             | Consumers advance              |
+  | isWritable                | hasAvailableCapacity           |
+  | channelWritabilityChanged | producer unblocked             |
+
+  **fast producer slowed by slow consumer.**
+
+
+
+
 # 算法与数据结构番外
 
 *[Interesting Read on Red Black Tree](https://github.com/zarif98sjs/RedBlackTree-An-Intuitive-Approach/blob/main/README.md)*
@@ -3316,8 +3379,10 @@ Follow the same initialization process as AOP
 - How do we resolve this ?
   - Three layers of caches.
     - **first layer： singletonObjects**: Complete, initialized beans
-    - **second layer： earlySingletonObjects**: Incomplete, earlier beans.
-    - **Third layer: singletonFactories**: TODO
+    - **second layer：earlySingletonObjects**: Incomplete, earlier beans.
+    - **Third layer: singletonFactories**: A Map, that provide creation logic for the proxy of the bean if there is AOP involved. 
+      - It is used if two classes have circular dependencies, **and**
+      - one or two of the classes also requires AOP.  
   - Actually one layer of cache is enough: we just need to a way out from the circular dependency. We can have one layer cahce when a bean is first constructed.
 - What is drawback of using one layer of cache?
   - two threads race condition
@@ -3333,3 +3398,48 @@ Follow the same initialization process as AOP
 - **The goal is to make sure**
   - 2 threads that call `getBean(A)` will both get **The complete, initialized bean!**
   - if there is a circular depency e.g. `A.b <---> B.a`, we allo `a` or `b` to be partially initialized to exit circular dependency. 
+
+- Why do we need `singletonFactories`, the 3rd layer?
+  - For circular dependices, when we resolve classes, we need to bring forward the `AOP phase` to after bean construction, before bean initialization; This way, `getBean` will return the proxy object, instead of the actual bean object.
+  - However, this is an exception only for `circular dependency`; for regular beans, `AOP` should still happen after class initialization.
+  - So we need `singletonFactories`: we store the logics for creating AOP in `singleton factories`
+    - if another thread calls `getBean` and find that the `bean` is in `singletonFactories` ---> circular dependency ---> create bean with AOP ---> stores Bean in `earlySingletonObjects` ---> return the Bean;
+    - if another thread calls `getBean`, this time the 2nd level cache can return the Bean
+    - so we retrieve the AOP logic from `singletonFactories` and do AOP early;
+    - otherwise, no bean in `earlySingletonObjects` --> no circular dependency ---> retrieve from `singletonObjects` ---> Do AOP after initialization ---> return Bean. 
+  - **In effect**, 3rd level `singletonFactories` also becomes the way out of circular dependencies
+  ```java
+    // 获取单例bean
+    private Object getSingleton(String beanName) {
+        if(singletonObjects.containsKey(beanName)){
+            return  singletonObjects.get(beanName);
+        }
+
+        synchronized (singletonObjects) {
+            // 出口   二级缓存有=当前是循环依赖
+            if (earlySingletonObjects.containsKey(beanName)) {
+
+                return earlySingletonObjects.get(beanName);
+            }
+            // 出口   二级缓存有=当前是循环依赖
+            if (factoriesObjects.containsKey(beanName)) {
+
+                ObjectFactory objectFactory = factoriesObjects.get(beanName);
+                Object aopBean = objectFactory.getObject();
+                earlySingletonObjects.put(beanName,aopBean); // put inisde early singletonObjects
+                factoriesObjects.remove(beanName);
+                return aopBean;
+            }
+        }
+        return null;
+    }
+  ```
+
+- **Cirucular dependencies in constructor with params are not resolved by spring framework by default!!**
+  - if you don't have no-args constructor, Spring will throw errors.
+  - One work around: use `@Lazy`, cglib will help create proxy for the moment.
+  
+- **Circular dependencies for prototype bean has no resolutions!!!**
+  - prototype bean has no caches, 
+  - without caches, how to resolve circular dependencies??? no way
+- 
