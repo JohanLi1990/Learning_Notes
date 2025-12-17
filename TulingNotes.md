@@ -79,6 +79,7 @@
     - [Spring Transactions.](#spring-transactions)
   - [Spring手写核心源码](#spring手写核心源码)
   - [Spring手写循环依赖](#spring手写循环依赖)
+  - [Spring IOC-加载bean定义源码详解](#spring-ioc-加载bean定义源码详解)
 
 
 # 性能优化-JVM-MYSQL
@@ -3442,4 +3443,12 @@ Follow the same initialization process as AOP
 - **Circular dependencies for prototype bean has no resolutions!!!**
   - prototype bean has no caches, 
   - without caches, how to resolve circular dependencies??? no way
-- 
+
+## Spring IOC-加载bean定义源码详解
+
+- Prerequisite, Spring 6 compile
+- **IOC** main components:
+  [Bean creation](./BeanCreation.png)
+- `ConfiguraitonClassPostProcessors`
+- `@Import`: import beans, importSelectors, or ImportBeanDefinitionRegistrar
+- Difference between adding Configuration and not adding Configuration: the creation and use of CGLIB
