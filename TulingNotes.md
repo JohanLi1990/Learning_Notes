@@ -80,6 +80,7 @@
   - [Spring手写核心源码](#spring手写核心源码)
   - [Spring手写循环依赖](#spring手写循环依赖)
   - [Spring IOC-加载bean定义源码详解](#spring-ioc-加载bean定义源码详解)
+  - [Spring IOC-bean的生命周期源码详解](#spring-ioc-bean的生命周期源码详解)
 
 
 # 性能优化-JVM-MYSQL
@@ -3452,3 +3453,13 @@ Follow the same initialization process as AOP
 - `ConfiguraitonClassPostProcessors`
 - `@Import`: import beans, importSelectors, or ImportBeanDefinitionRegistrar
 - Difference between adding Configuration and not adding Configuration: the creation and use of CGLIB
+
+## Spring IOC-bean的生命周期源码详解
+- Spring source code in depth on bean creations
+- singltonObjects, earlySingletonObject, singletonFactories in practice
+- Why we do not do `synchornized` on earlySingletonObject?
+  - Deadlocks.
+  - They removed it but it will result in many threads getting incomplete beans.
+  - but one could argue that you should not have circular dependency in the first place
+- `@Aysnc` will result in inconsistency in circular dependencies scenario: `BeanCurrentlyInCreationException`
+  - add `@Lazy`
