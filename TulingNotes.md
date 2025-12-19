@@ -50,6 +50,7 @@
     - [Day 1 takeaway: Simple Disruptor (one producer one consumer)](#day-1-takeaway-simple-disruptor-one-producer-one-consumer)
     - [Day 2 takeaway: Mutli consumer \& Backpressure](#day-2-takeaway-mutli-consumer--backpressure)
     - [Day 3 takeaway: Netty refresher, I/O Threading \& Backpressure](#day-3-takeaway-netty-refresher-io-threading--backpressure)
+    - [Day 4 takeawy: Netty Disruptor Handoff (core OMS pattern)](#day-4-takeawy-netty-disruptor-handoff-core-oms-pattern)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
     - [Background](#background)
@@ -2270,8 +2271,81 @@ This is expected, not a bug.
   **fast producer slowed by slow consumer.**
 
 
+### Day 4 takeawy: Netty Disruptor Handoff (core OMS pattern)
 
+- **Cannonical OMS Gateway**
+  ```
+    Netty EventLoop (I/O)
+    → Disruptor Ring (business pipeline)
+        → Netty EventLoop (write-back)
+  ```
+  - EventLoop never blocks
+  - Business logic never touches sockets directly
+  - All writes are scheduled back onto the EventLoop
 
+- **What backpressure really meant**
+  - **Waiting strategy ≠ Backpressure Policy**
+    - **WaitingStrategy**(BLOCKING, BUSYSPIN, YIELDING)
+      - Consumer-side only
+      - Controls how consumers wait when there is no data
+      - Trades CPU for latency
+      - ❌ Does NOT decide reject/block behavior
+    - **Backpressure / Admission control**
+      - Producer-side decision
+      - Happesn when the ring buffer is full
+      - implemented via:
+        - `tryNext()` / `tryPublishEvent`
+        - `InsufficientCapacityException`
+  - 👉 Rejecting events is a producer policy, not a waiting strategy.
+
+- **The most important bug you found (and fixed)**
+  - **WRONG!!!**
+  ```java
+    long seq = -1;
+    try {
+        seq = ringBuffer.tryNext();
+        ...
+    } catch (...) {
+        ...
+    } finally {
+        ringBuffer.publish(seq);   // ❌ publishes -1
+    }
+  ```
+  - This **corrupts the ring** and causes:
+    - consumer to stall
+    - responses to `disappear`
+    - system to silently stop progressing
+  - ✅ Golden rule, only publish a sequence you successfully claimed.
+
+- **Experiment B — Noisy neighbor behavior (expected results)**
+  - Results you observed (correct):
+    - Fast client:
+      - Very high reject rate
+      - Completes quickly (“fails fast”)
+    - Slow client:
+      - Much lower reject rate
+      - Takes longer to complete
+  - Interpretation:
+    - With global admission control, whoever hits the door more often gets rejected more often.
+    - This is expected physics, not unfairness.
+
+- Why reject is better than queueing
+  - Your final 100k test demonstrated the core gateway truth:
+    - Rejecting:
+      - Preserves latency
+      - Preserves throughput
+      - Makes overload visible to clients
+    - Queueing:
+      - Hides overload
+      - Explodes latency
+      - Eventually collapses the system
+  - 👉 Reject early, fail fast, stay alive.
+
+> **Note**
+> * Day 4 taught me that low-latency systems are governed by admission control not raw speed.
+> * Disruptor enforces backpressure; Netty enforces I/O discipline
+> * Latency under load is dominated by queueing, and the correct response is fast rejection, not blocking.
+---
 # 算法与数据结构番外
 
 *[Interesting Read on Red Black Tree](https://github.com/zarif98sjs/RedBlackTree-An-Intuitive-Approach/blob/main/README.md)*
