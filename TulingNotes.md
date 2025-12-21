@@ -83,6 +83,7 @@
   - [Spring手写循环依赖](#spring手写循环依赖)
   - [Spring IOC-加载bean定义源码详解](#spring-ioc-加载bean定义源码详解)
   - [Spring IOC-bean的生命周期源码详解](#spring-ioc-bean的生命周期源码详解)
+  - [Spring AOC 底层源码解析](#spring-aoc-底层源码解析)
 
 
 # 性能优化-JVM-MYSQL
@@ -3698,5 +3699,247 @@ Follow the same initialization process as AOP
   - Deadlocks.
   - They removed it but it will result in many threads getting incomplete beans.
   - but one could argue that you should not have circular dependency in the first place
-- `@Aysnc` will result in inconsistency in circular dependencies scenario: `BeanCurrentlyInCreationException`
+
+- **`@Aysnc`** will result in inconsistency in circular dependencies scenario: `BeanCurrentlyInCreationException`
   - add `@Lazy`
+
+- **Async Bean Creation**
+  - `@Bean(bootstrap = Bean.Bootstrap.BACKGROUND)`
+  ```java
+    @Bean
+    public Executor bootstrapExecutor(){
+        return  Executors.newCachedThreadPool();
+    }
+  ```
+  - > org.springframework.beans.factory.support.DefaultListableBeanFactory#preInstantiateSingleton
+
+- **BeanPostProcessor — What It Is, What Problem It Solves**
+  - In **Spring Framework**, a `BeanPostProcessor` (BPP) is:
+    - > **A hook that allows you to intercept and modify every Spring bean
+    - > *after instantiation* but *before it is used*.**
+  
+    - Concretely:
+      -  Spring creates a bean instance
+      -  Spring calls:
+         -  `postProcessBeforeInitialization`
+         -  `postProcessAfterInitialization`
+    - You may:
+      - return the same bean
+      - or return a *wrapped / proxied* bean
+
+    - Once returned, **that object becomes the bean used everywhere**.
+
+  - **What problem does it solve?**
+    - In large systems (OMS, gateways, infra-heavy apps):
+      - You want **system-wide guarantees**
+      - You do **not** want to rely on:
+        - developer discipline
+        - copy-paste boilerplate
+        - “remember to do X”
+
+      - Examples of guarantees:
+        * latency limits
+        * threading model
+        * proxying / interception
+        * startup validation
+        * mandatory instrumentation
+
+      - > **BPP solves the problem of enforcing non-negotiable infrastructure rules automatically.**
+
+  - **What BPP is *not* for (important)**
+
+    - You were right to be skeptical.
+    - ❌ Not for:
+      * business logic
+      * order validation
+      * trading rules
+      * domain behavior
+      * per-method logging for readability
+    - If reading a class no longer explains its behavior → **bad BPP usage**.
+
+  - **What kind of problems it *is* good at (OMS-grade examples)**
+    - **Enforcing latency budgets**
+      ```
+      Problem:
+
+      * “Every risk / routing / booking component must respect SLA”
+
+      Solution:
+
+      * Annotate beans (`@LatencyCritical`)
+      * BPP wraps them with timing + fail-fast logic
+
+      Result:
+
+      * No boilerplate
+      * No forgetting
+      * Centralized enforcement
+
+      This is **structural**, not business logic.
+      ```
+    
+    - **Enforcing threading / execution model**
+      ```
+      Problem:
+
+      * Some OMS components must:
+
+        * run on one thread
+        * preserve order
+        * avoid accidental parallelism
+
+      Solution:
+
+      * BPP wraps beans so method calls are dispatched to:
+
+        * a dedicated executor
+        * event loop
+        * Disruptor later
+
+      Result:
+
+      * Developers cannot violate threading guarantees accidentally.
+      ```
+
+    - **Fail-fast wiring validation at startup**
+      ```
+      Problem:
+
+      * Low-latency components must not depend on:
+
+        * blocking clients
+        * transactions
+        * slow infrastructure
+
+      Solution:
+
+      * BPP inspects beans at startup
+      * Throws exception → application refuses to start
+
+      Result:
+
+      * Fail early
+      * Fail loud
+      * Production safety
+      ```
+  
+  - **How Spring knows your BPP exists**
+    This was your key question.
+
+    > **A BeanPostProcessor is just a normal Spring bean.**
+
+    Spring applies *no magic discovery*.
+
+    You must register it via:
+
+    * `@Component` **or**
+    * `@Bean` in `@Configuration` (preferred for infra)
+
+    Once registered:
+
+    * Spring instantiates BPPs **early**
+    * Registers them internally
+    * Applies them to **all subsequent beans**
+
+
+  - **Why ordering & dependencies matter**
+
+    Because BPPs are created early:
+
+    * Avoid heavy dependencies
+    * Avoid accidental circular wiring
+    * Prefer:
+
+      * constructor injection
+      * lazy lookup
+      * minimal dependencies
+
+    This is why infra BPPs are usually:
+
+    * simple
+    * deterministic
+    * explicit
+
+
+  - **How Spring itself uses BeanPostProcessor**
+
+    This is not an exotic feature.
+
+    Spring core features implemented as BPPs:
+
+    * `@Autowired`
+    * `@PostConstruct`
+    * AOP proxies
+    * `@Async`
+    * `@EventListener`
+
+    Your OMS BPPs are doing **the same thing**, just with narrower scope.
+
+  - Final one-liner
+
+    > **BeanPostProcessor is an infrastructure enforcement mechanism,
+    > not a business abstraction.**
+
+
+## Spring AOC 底层源码解析
+
+- **Advisors are sorted using**: `PriorityOrdered`, `Order`, `@Order`
+  - Not in `JdkDynamicProxy.java`
+  - Ordering happens before invocation, when Spring builds the interceptor chain: `AdvisedSupport`, `DefaultAdvisorChainFactory`
+
+- **Core Design Patterns**
+  - *Chain of Responsibilty* (primary pattern)
+    - Each `MethodInterceptor` is a handler
+    - the request flows through the chain
+    - `invocation.proceed()` passes control to the next interceptor
+    - Key class `ReflectiveMethodInvocation`
+  
+  - *Decorator*
+    - Interceptors wrap the invocation
+    - Code before `proceed()` = `before advice`
+    - Code after `proceed()` = `after advice`
+    - Explains why:
+      - befor runs in order
+      - after runs in reverse order.
+
+  - *Proxy*
+    - Entry point of AOP
+    - `JdkDynamicAopProxy` / `CglibAopProxy`  
+    - Captures method calls and triggers the interceptor chain.
+
+  - *Adapter*
+    - Different advice types unified as `MethodInterceptor`
+    - Handled via `AdvisorAdapterRegistry`
+  
+- **Final Mental model**: 
+  > Spring AOP = proxy + Chain of Responsibility + Decorator. 
+  > 
+  > The same model appears in
+  > * Netty pipelines
+  > * Servlet filters
+  > * gRPC / OkHttp interceptors 
+
+- **Source code**:
+  ```
+    JdkDynamicProxy.invoke -> ReflectiveMethodInvocation.proceed ->
+    
+    // where the chain is assembled
+    AdvisedSupport.getInterceptorsAndDynamicInterceptionAdvice
+    DefaultAdvisorChainFactory
+    
+    // how different adivce types become interceptors
+    AdvisorAdapterRegistry
+    
+    // where @Aspect is turned into Advisors
+    AnnotationAwareAspectJAutoProxyCreator
+
+    Read in this order — do not jump randomly:
+    JdkDynamicAopProxy.invoke()
+    ReflectiveMethodInvocation.proceed() ← most important
+    AdvisedSupport.getInterceptorsAndDynamicInterceptionAdvice()
+    DefaultAdvisorChainFactory
+    MethodInterceptor implementations
+    AnnotationAwareAspectJAutoProxyCreator
+    This mirrors actual runtime flow.
+  ```
+ 
