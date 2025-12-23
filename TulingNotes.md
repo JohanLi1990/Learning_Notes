@@ -84,6 +84,15 @@
   - [Spring IOC-加载bean定义源码详解](#spring-ioc-加载bean定义源码详解)
   - [Spring IOC-bean的生命周期源码详解](#spring-ioc-bean的生命周期源码详解)
   - [Spring AOC 底层源码解析](#spring-aoc-底层源码解析)
+  - [Spring 声明式事务底层源码](#spring-声明式事务底层源码)
+    - [事务解析](#事务解析)
+    - [事务解析创建代理 (Bean initiliazation)](#事务解析创建代理-bean-initiliazation)
+    - [事务调用 (core)](#事务调用-core)
+    - [Transaction begin](#transaction-begin)
+    - [Business logic](#business-logic)
+    - [Transction submission](#transction-submission)
+    - [事务回滚](#事务回滚)
+    - [**Most important breakpoints \& SUMMARY**](#most-important-breakpoints--summary)
 
 
 # 性能优化-JVM-MYSQL
@@ -3942,4 +3951,49 @@ Follow the same initialization process as AOP
     AnnotationAwareAspectJAutoProxyCreator
     This mirrors actual runtime flow.
   ```
- 
+
+## Spring 声明式事务底层源码
+
+> Spring Txn = AOP + Threadlocal + PlatformTransactionManager
+
+### 事务解析
+- Just like AOP (there is advice and point cut)
+- `ProxyTransactionManagementConfiguration`:
+  - register `TransactionInterceptor`
+  - register `BeanFactoryTransactionAttributeSourceAdvisor`
+- `AnnotationTransactionAttributeSource`
+  - parse `@Transactional`
+
+### 事务解析创建代理 (Bean initiliazation)
+- Search for `Advisor`:
+  - `AbstractAutoProxyCreator.findAdvisorBeans`
+- Proxy creation:
+  - `AbstractAutoProxyCreator.postProcessAfterInitilization`
+
+### 事务调用 (core)
+- `JdkDynamicAopProxy.invoke` 
+- `TransactionAspectSupport.invokeWithinTransaction`
+
+### Transaction begin
+- `PlatformTransactionManager.getTransaction`
+- `DataSrouceTransactionManager.doBegin`
+- `TransactionSynchronizationManager.bindResource`
+
+### Business logic
+- `invocation.proceed`
+
+### Transction submission
+- `PlatformTransactionManager.commit`
+- `DataSourceTransactionManager.doCommit`
+
+### 事务回滚 
+- `TransactionAttribute.rollbackOn`
+- `PlatformTransactionManager.rollback`
+
+### **Most important breakpoints & SUMMARY**
+- > `TransactionAspectSupport.invokeWithTransaction`
+- > `DataSourceTransactionManager.doBegin`
+- > `TransactionSynchronizationManager.bindResource`
+- > Spring Tx uses AOP to intercept method boundaries
+- > binds a database connection to current thread via Threadlocal
+- > delegate commit or rollback decision to a PlatformTransactionManager
