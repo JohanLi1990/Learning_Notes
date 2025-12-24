@@ -93,6 +93,7 @@
     - [Transction submission](#transction-submission)
     - [事务回滚](#事务回滚)
     - [**Most important breakpoints \& SUMMARY**](#most-important-breakpoints--summary)
+  - [Spring事件监听使用和原理源码](#spring事件监听使用和原理源码)
 
 
 # 性能优化-JVM-MYSQL
@@ -3997,3 +3998,40 @@ Follow the same initialization process as AOP
 - > Spring Tx uses AOP to intercept method boundaries
 - > binds a database connection to current thread via Threadlocal
 - > delegate commit or rollback decision to a PlatformTransactionManager
+
+----
+## Spring事件监听使用和原理源码
+- 3 componensts:
+  - ApplicationEvent
+  - ApplicationEventListenr
+  - ApplicationEventMulticaster
+- How everything is hooked together
+  - `AbstractApplicationContext.refresh`
+  - `initApplicationEventMulticaster`
+  - `registerlisteners` + `finishBeanFactoryInitialization`
+  - `EventListenerMethodProcessor.afterSingletonsInstantiated`
+- When there is event
+  - `AbstractApplicationContext.publish`
+  - `ApplicationEventMulticast.multicastevent`
+- Key philosophy: **Observer Pattern** or **Pub-Sub Pattern**
+  - **Publisher**: `ApplicationEventPublisher.publishEvent`
+  - **Subscriber**: `@EventListener` or implements `ApplicationListener`
+  - **Broker**: `ApplicationEventMulticaster`
+  ```java
+    @Configuration
+    @ComponentScan
+    public class MainConfig {
+
+      /*往SimpleApplicationEventMulticaster设置taskExecutor则为异步事件
+        或者使用@Async*/
+        @Bean(name = "applicationEventMulticaster")
+        public ApplicationEventMulticaster simpleApplicationEventMulticaster() {
+            SimpleApplicationEventMulticaster eventMulticaster
+                    = new SimpleApplicationEventMulticaster();
+
+
+            //eventMulticaster.setTaskExecutor(Executors.newCachedThreadPool());
+            return eventMulticaster;
+        }
+    }
+  ```
