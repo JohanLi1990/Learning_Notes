@@ -94,6 +94,7 @@
     - [事务回滚](#事务回滚)
     - [**Most important breakpoints \& SUMMARY**](#most-important-breakpoints--summary)
   - [Spring事件监听使用和原理源码](#spring事件监听使用和原理源码)
+  - [Spring IOC container extension point](#spring-ioc-container-extension-point)
 
 
 # 性能优化-JVM-MYSQL
@@ -1966,7 +1967,8 @@ Test-NetConnection 192.168.10.31 -Port 9092
 - Netty High Level architecture, boss-worker pattern
 ![Booss-worker](./Netty_High_level.png)
 
-- [Part I detailed flow](./Netty1-drawing.drawio.svg)
+- Part I detailed flow
+  ![Part I detailed flow](./Netty1-drawing.drawio.svg)
   - ServerBooStrap init Channel
   - register channel with its own boss ELG.
   - start one **Server EL** from Boss-ELG:
@@ -1980,7 +1982,8 @@ Test-NetConnection 192.168.10.31 -Port 9092
       - bind to ip and port (use `invokeLater` to add the task `fireChannelActive` to EL)
       - fire channel active -> fire read if auto read is true
 
-- [Part II detailed flow](./Netty2-drawing.drawio.svg)
+- Part II detailed flow
+  ![Part II detailed flow](./Netty2-drawing.drawio.svg)
   - Client initialize `BootStrap`
   - Client send connection request to Server -> **Server EL** detects via `runIo`
     - `processSelectedKeys` -> fireChannelRead in `ServerSocketChannel`
@@ -3596,7 +3599,7 @@ Follow the same initialization process as AOP
   - **Solution** ----> use 2pc, 3pc, SAGA (distributed transaction) **OR** programmatic transactions. (`TransactionSynchronizationManager.bindResource(dataSource, connectionHandler)`) 
   [Hack for Transaction Propagtion problem in Spring](https://www.yuque.com/geren-t8lyq/ncgl94/bpkuxseeixw3gs06?singleDoc#)
 
-  [Spring Overall Architecture](./1.Spring源码VIP第八期流程图.png)
+  ![Spring Overall Architecture](./1.Spring源码VIP第八期流程图.png)
 
 ## Spring手写核心源码
 
@@ -3697,7 +3700,7 @@ Follow the same initialization process as AOP
 
 - Prerequisite, Spring 6 compile
 - **IOC** main components:
-  [Bean creation](./BeanCreation.png)
+  ![Bean creation](./BeanCreation.png)
 - `ConfiguraitonClassPostProcessors`
 - `@Import`: import beans, importSelectors, or ImportBeanDefinitionRegistrar
 - Difference between adding Configuration and not adding Configuration: the creation and use of CGLIB
@@ -4035,3 +4038,123 @@ Follow the same initialization process as AOP
         }
     }
   ```
+
+## Spring IOC container extension point
+
+![Extension points picture](./ExtensionPoints_Spring_Container.png)
+
+- Extension Point during `BeanDefinition` registration processs
+  - `BeanFactoryPostProcessor`
+  - `BeanDefinitionRegistryPostProcessor`
+    - `ConfigurationClassPostProcessor` (`@Component`, `@Bean`, `@Import`)
+    - `@Import`
+      - `ImportSelector`
+      - **`ImportBeanDefinitionRegistrar`**: have to use with `@Import`
+        - It is not a bean it doesn't obey bean life-cycle, 
+        - but it has one advantage: `AnnotationMetadata`, it can retrieve annotations belonging to the classes that you are `@import`-ing.
+
+- Extension Point during `Bean` creation phase
+![BeanPostProcessors](./BeanPostProcessor.png)
+  - **Aware** api
+    - During instantiation it is very hard to use `@Autowired` to inject beans, because DI only comes later in the instantiation phase.
+    - That is why classes use `Aware` to get Spring components. (e.g. `Environment`, `EmbeddedValueResolver`)
+  
+    ![Aware](./Aware.png)
+
+  - Bean lifecycle call back:
+    - `PostConstruct`,  or `InitializingBean`
+    - `Predestroy`, or `DisposableBean`
+
+- Extension point after Bean instantiation (Mature state)
+  - `SmartInitializingSingleton`:
+    - Do something to a group of beans, instead of doing something to one bean.
+    - invoked `afterSingletonsInstantiated`
+    - Can be used together with other interfaces such as `Aware` to make it more powerful:
+    ```java
+      @Component
+      public class MySmartInitializingSingleton implements SmartInitializingSingleton, ApplicationContextAware {
+
+        ApplicationContext applicationContext;
+        @Override
+        public void afterSingletonsInstantiated() {
+          //  applicationContext.getBeansOfType()
+          System.out.println("所有bean创建完后调用.. 需要进行解析bean");
+        }
+
+        @Override
+        public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+          applicationContext=applicationContext;
+        }
+      }
+    ```
+  - `SmartLifycycle`
+    - contains trigger point `start`, `stop`, `isRunning`
+    - called when the `AbastractApplicationContext` has `start`ed, `stop`ped...
+  
+  - `ContextRefreshedEvent`, event listener
+
+- **Use extension point to recreate meituan dynamic-tp**
+  - `ThreadPool` parameters:
+    - `corePoolSize`
+    - `maximumPoolSize`
+    - `keepAliveTime`
+    - `TimeUnit`
+    - `workQueue`
+    - `handler`
+  
+  - **How do we define ThreadPools from configuration yaml files?**
+    - create `DtpProperties` class
+    - Use `@ConfigurationProperties`
+    - OR **EnvironmentAware**, this allows us to inject properties **earlier** in the bean defintion phase.
+  
+  - **How do we dynamically update ThreadPools parameters**
+    - via `@controllers`
+    - we also need to store it in a registry `DtpRegistry` for easy management later? but at which extension? `BeanPostProcessor`
+    ```java
+      public class DtpBeanPostProcessor implements BeanPostProcessor {
+          private DefaultListableBeanFactory beanFactory;
+
+          @Override
+          public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+              if (bean instanceof DtpThreadPoolExecutor) {
+                  //直接纳入管理
+                  DtpRegistry.registry(beanName, (ThreadPoolExecutor) bean);
+              }
+              return bean;
+          }
+      }
+    ```
+    - `DtpRegsitry.refresh()`
+
+  - Or another way is to use `ApplicationEvent` 
+    - extension via `ApplicationEventPublisherAware` to get SpringApplicationEventPublisher.
+    - `@EventListener(DtpEvent.class)` 
+  
+  - **How do we implement a monitoring function ?**
+    - `DtpMonitor implements SmartLifyCycle`
+    - Use scheduler to constantly check ThreadPool to check the number of threads in the threadpool, if it reaches a alarm threashold, it will send SMS or email.
+  
+  - **How to package our lib for other people to use**
+    - `@EnableDynamicThreadPool`
+    - Then use `ImportSelector`
+    ```java
+      @Target(ElementType.TYPE)
+      @Retention(RetentionPolicy.RUNTIME)
+      @Import(DtpImportSelector.class)
+      public @interface EnableDynamicThreadPool {
+      }
+
+      public class DtpImportSelector implements DeferredImportSelector {
+          @Override
+          public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+              return new String[]{
+                      DtpImportBeanDefinitionRegistrar.class.getName(),
+                      DtpBeanPostProcessor.class.getName(),
+                      DtpMonitor.class.getName()
+              };
+          }
+      }
+
+    ```
+
+
