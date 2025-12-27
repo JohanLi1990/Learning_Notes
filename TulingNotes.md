@@ -51,6 +51,13 @@
     - [Day 2 takeaway: Mutli consumer \& Backpressure](#day-2-takeaway-mutli-consumer--backpressure)
     - [Day 3 takeaway: Netty refresher, I/O Threading \& Backpressure](#day-3-takeaway-netty-refresher-io-threading--backpressure)
     - [Day 4 takeawy: Netty Disruptor Handoff (core OMS pattern)](#day-4-takeawy-netty-disruptor-handoff-core-oms-pattern)
+    - [Day 5 Design considerations](#day-5-design-considerations)
+      - [**Design A**](#design-a)
+      - [**Design B**](#design-b)
+      - [Desgin C Hybrid](#desgin-c-hybrid)
+    - [Day 5 Takeaways](#day-5-takeaways)
+      - [Session 2](#session-2)
+      - [Session 3](#session-3)
     - [Disruptor Paddings 番外篇](#disruptor-paddings-番外篇)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
@@ -2362,6 +2369,248 @@ This is expected, not a bug.
 > * Latency under load is dominated by queueing, and the correct response is fast rejection, not blocking.
 ---
 
+### Day 5 Design considerations
+Day 5 practices are pivoted to take into this OMS consideration:
+> **Tasks are correlated into families; tasks from the same family _has to be executed by one thread_ only at any given time, in FIFO sequence**
+
+[Day5 Code](https://github.com/JohanLi1990/buildWithJdk25)
+
+#### **Design A**
+```
+                ┌─────────────────────┐
+                │     Netty IO         │
+                │ (event loop thread)  │
+                └─────────┬───────────┘
+                          │
+                          │ decode → TaskEvent
+                          │ extract familyKey
+                          ▼
+                ┌─────────────────────┐
+                │   Router / Hasher   │
+                │ hash(familyKey)     │
+                │   & (N - 1)         │
+                └───────┬─────────────┘
+                        │
+        ┌───────────────┼────────────────┬───────────────┐
+        ▼               ▼                ▼               ▼
+┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐
+│ Disruptor  │   │ Disruptor  │   │ Disruptor  │   │ Disruptor  │
+│ Partition0 │   │ Partition1 │   │ Partition2 │   │ Partition3 │
+│ RingBuffer │   │ RingBuffer │   │ RingBuffer │   │ RingBuffer │
+└─────┬──────┘   └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
+      │                │                │                │
+      ▼                ▼                ▼                ▼
+┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐
+│ Consumer   │   │ Consumer   │   │ Consumer   │   │ Consumer   │
+│ Thread 0   │   │ Thread 1   │   │ Thread 2   │   │ Thread 3   │
+│ (FIFO)     │   │ (FIFO)     │   │ (FIFO)     │   │ (FIFO)     │
+└────────────┘   └────────────┘   └────────────┘   └────────────┘
+      │                │                │                │
+      ▼                ▼                ▼                ▼
+   process          process          process          process
+ (families         (families         (families         (families
+ serialized        serialized        serialized        serialized
+ per partition)    per partition)    per partition)    per partition)
+
+```
+Properties (write this next to the diagram)
+
+✔ FIFO per family (guaranteed by routing)
+
+✔ Excellent cache locality
+
+✔ Very predictable latency
+
+✘ Parallelism capped at N partitions
+
+✘ Hot family can dominate its partition
+
+#### **Design B**
+```
+                ┌─────────────────────┐
+                │     Netty IO         │
+                │ (event loop thread)  │
+                └─────────┬───────────┘
+                          │
+                          │ decode → TaskEvent
+                          ▼
+                ┌─────────────────────┐
+                │   Disruptor / Queue │   (optional but common)
+                │   (bounded buffer)  │
+                └─────────┬───────────┘
+                          │
+                          ▼
+                ┌─────────────────────┐
+                │ Dispatcher /        │
+                │ FamilyScheduler     │
+                │                     │
+                │ CHM<familyKey,      │
+                │   FamilyState>      │
+                └─────────┬───────────┘
+                          │
+          ┌───────────────┼────────────────────────┐
+          │               │                        │
+          ▼               ▼                        ▼
+┌────────────────┐ ┌────────────────┐    ┌────────────────┐
+│ Family A State │ │ Family B State │ .. │ Family X State │
+│ busy flag      │ │ busy flag      │    │ busy flag      │
+│ pending queue  │ │ pending queue  │    │ pending queue  │
+└───────┬────────┘ └───────┬────────┘    └───────┬────────┘
+        │                  │                     │
+        ▼                  ▼                     ▼
+┌────────────────────────────────────────────────────────── ┐
+│                  Worker Thread Pool                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │ Worker 1 │ │ Worker 2 │ │ Worker 3 │ │ Worker N │      │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘      │
+│       │              │              │              │      │
+│       ▼              ▼              ▼              ▼      │
+│   process A1      process B1     process C1     process D1│
+│   process A2      process B2                        ...   │
+└────────────────────────────────────────────────────────── ┘
+```
+Properties (write this next to the diagram)
+✔ FIFO per family (enforced by scheduler)
+
+✔ Parallelism up to pool size
+
+✔ Hot family doesn’t block other families
+
+✘ More moving parts
+
+✘ CHM / queue contention if not careful
+
+✘ Higher latency variance if poorly tuned
+
+- Comparison: **Option A has lower p99 because**
+  - no CHM
+  - no CAS storms
+  - no cache line bouncing
+  - deterministic single thread execution
+- **But**
+  - head-of-line blocking exists
+  - large synthetic families (e.g. TBR) can poison a partition
+- **Mitigations**
+  - route synthetic / hot fmailies to dedicated partitions
+  - keep default path simple and fast
+
+
+#### Desgin C Hybrid
+
+```
+             ┌─────────────────────┐
+             │       Netty IO       │
+             │  (event loop thread) │
+             └──────────┬───────────┘
+                        │ decode → TaskEvent
+                        │ extract familyKey
+                        ▼
+             ┌─────────────────────┐
+             │   Router / Hasher   │
+             │ p = hash(familyKey) │
+             │     & (N - 1)       │
+             └───────┬─────────────┘
+                     │
+ ┌───────────────────┼───────────────────┬───────────────────┐
+ ▼                   ▼                   ▼                   ▼
+
+┌────────────┐      ┌────────────┐      ┌────────────┐      ┌────────────┐
+│ Disruptor  │      │ Disruptor  │      │ Disruptor  │      │ Disruptor  │
+│  P0 ring   │      │  P1 ring   │      │  P2 ring   │      │  P3 ring   │
+└─────┬──────┘      └─────┬──────┘      └─────┬──────┘      └─────┬──────┘
+      │                   │                   │                   │
+      ▼                   ▼                   ▼                   ▼
+┌────────────┐      ┌────────────┐      ┌────────────┐      ┌────────────┐
+│ Consumer   │      │ Consumer   │      │ Consumer   │      │ Consumer   │
+│ Thread P0  │      │ Thread P1  │      │ Thread P2  │      │ Thread P3  │
+│ dispatcher │      │ dispatcher │      │ dispatcher │      │ dispatcher │
+└─────┬──────┘      └─────┬──────┘      └─────┬──────┘      └─────┬──────┘
+      │                   │                   │                   │
+      ▼                   ▼                   ▼                   ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ FamilyMap P0 │    │ FamilyMap P1 │    │ FamilyMap P2 │    │ FamilyMap P3 │
+│ (family→state)│   │ (family→state)│   │ (family→state)│   │ (family→state)│
+└──────┬───────┘    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+       │                   │                   │                   │
+       ▼                   ▼                   ▼                   ▼
+┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐
+│ WorkerPool P0  │  │ WorkerPool P1  │  │ WorkerPool P2  │  │ WorkerPool P3  │
+│ (k threads)    │  │ (k threads)    │  │ (k threads)    │  │ (k threads)    │
+└────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘
+
+```
+
+Dedicate one partition for TBR, because they might get heavy.
+
+*Concern about false sharing in ConcurrentHashMap bins is mostly theoretical in this design. CHM bins are pointer-based heap objects and do not cause cache-line sharing across bins. The real false-sharing risk lies in hot fields inside FamilyState (e.g. busy), but this is negligible at 10–20ms task durations. Partitioned schedulers already eliminate the dominant sharing risks. Cache-line padding should be considered only after p99 profiling proves scheduler overhead dominates.*
+
+### Day 5 Takeaways
+
+#### Session 2
+
+* **Key takeaway**
+  * Multilple Netty evenloop threads can publish into the same partition
+    * use `ProducerType.MULTI` instead of `ProducerType.SINGLE`
+  * Logging Strategy:
+    * Sample logging to avoid hot-path overhead
+    ```java
+      if ((totalCounts & 0x3FFF) == 0) {
+        log.info("published={}, rejected={}", published, rejected); 
+      }
+    ```
+  * Routing Strategy:
+    * Correlated Task: `partition = floorMode(correlationId, N)`
+    * Uncorrelated Task: `partition = floorMod(System.identityHashCode(ctx.channel()), N);`
+
+#### Session 3
+
+- **Key Takeaway**
+  - Disruptor Events must not escape the consumer thread
+    - RingBugger resuses TaskEvent objects
+    - Queuing them into `pending` causes data corruption.
+  - **Recursive drain on completion**
+    - Every dispatched task **must schedule the next one, or release busy**
+    ```java
+    dispatchAndDrain(state, task):
+      async work
+      onComplete:
+        next = pending.poll()
+        if next != null:
+           dispatchAndDrain(state, next)
+        else:
+           busy = 0
+           race fix:
+             if new task arrived → re-acquire busy → dispatch
+    ```
+    - This guarantees exactly 1 in-flight task per family
+    - FIFO preserved
+    - no family can wedge permanently
+  
+  - **Lost wakeup prevention pattern**
+    ```java
+    onComplete():
+        task = queue.poll()
+        if (task != null) {
+            run(task)
+            return
+        }
+    
+        flag = IDLE
+    
+        // ---- race fix ----
+        task = queue.poll()
+        if (task != null && CAS(flag, IDLE, BUSY)) {
+            run(task)
+        }
+    ```
+    - Problem Statement:
+      - 2 threads coordinates via a `flag` and a `work queue`
+      - The operations `check queue` and `release flag` are not atomic
+    - Pattern solution:
+      - After releasing the flag, recheck the queue and reclaim ownership if work exist
+
+---
+
 ### Disruptor Paddings 番外篇
 - **How is padding done to protect hot area from false sharing**
   - Disruptor padding is designed to reduce false sharing, which happens when:
@@ -3168,7 +3417,7 @@ This is expected, not a bug.
 
 ## 线程池实战及原理分析
 - Why do we need ThreadPool: 
-  - reduce nergey consumption, use already created thread.
+  - reduce energey consumption, use already created thread.
   - improve response time, no need to create thread
   - Manage threads, because threads are scarce resources
   - Extend fuctionalities, like cronjob, scheduled runners.
@@ -3189,6 +3438,7 @@ This is expected, not a bug.
   - maximumPoolSize: (Maixum spike input - workQueueSize) * (unit time to process a task)
   - keepAliveTime: no real recommendations. 
 - **ThreadPool** Operations under the hood:
+  - use core threads first -> enqueue the runnable -> queue is full, then grow the poolSize to maximumPoolSize -> still have new runnable tasks? DiscardPolicy. 
   - corePools -> workQueue -> maximumPoolSize -> DiscardPolicy
   - use `ctl` 3MSB for Threadpool State, 29 bit for worker count (500million)
   - 5 different states: RUNNING (-1 << 29), SHUTDOWN(0), STOP(1), TIDYING(2), TERMINATED(3)
@@ -3205,30 +3455,30 @@ This is expected, not a bug.
   - `execute`
   - `addWorker`: add and run worker thread in containers. 
     - Shutdown vs Stop logic:
-  ```java
-              if (runStateAtLeast(c, SHUTDOWN)
-                && (runStateAtLeast(c, STOP)
-                    || firstTask != null
-                    || workQueue.isEmpty()))
-                return false;
-  ```
+      ```java
+            if (runStateAtLeast(c, SHUTDOWN)
+              && (runStateAtLeast(c, STOP)
+                  || firstTask != null
+                  || workQueue.isEmpty()))
+              return false;
+      ```
     - if the threadpool is shutdown mode, we can still process all the tasks that are already in workQueue. we don't have to interrupt them unless the threadpool is in STOP mode. 
   - `runWorker`
   - `processWorkerExit`:
     - if the thread ends abruptly, it will create a new Thread is `RUNNING` or `SHUTDOWN` 
-  ```java
-        int c = ctl.get();
-        if (runStateLessThan(c, STOP)) {
-            if (!completedAbruptly) {
-                int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
-                if (min == 0 && ! workQueue.isEmpty())
-                    min = 1;
-                if (workerCountOf(c) >= min)
-                    return; // replacement not needed
-            }
-            addWorker(null, false);
-        }
-  ```
+    ```java
+      int c = ctl.get();
+      if (runStateLessThan(c, STOP)) {
+          if (!completedAbruptly) {
+              int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
+              if (min == 0 && ! workQueue.isEmpty())
+                  min = 1;
+              if (workerCountOf(c) >= min)
+                  return; // replacement not needed
+          }
+          addWorker(null, false);
+      }
+    ```
   - `getTask`, wait for new tasks from BlockingQueue. When interrupted, check the state of threadpool, if it is stopped return.
 - Concurrency Design Patterns(多线程分工模式)
   - Thread per message, easy but costly for a java thread ( could be more suitable for Virtual Thread/ Ko-routine, Go-routine)
