@@ -107,6 +107,13 @@
     - [FactoryBean](#factorybean)
     - [`MybatisMapperScan` extends `ClassPathBeanDefinitionScanner`](#mybatismapperscan-extends-classpathbeandefinitionscanner)
     - [Question: what happened if you invoke `findOrderService` from one of the interface?](#question-what-happened-if-you-invoke-findorderservice-from-one-of-the-interface)
+    - [Final Note on Mybatis](#final-note-on-mybatis)
+      - [Mybatis is not a ORM. it is a SQL -\> Object mapper](#mybatis-is-not-a-orm-it-is-a-sql---object-mapper)
+      - [What JPA / Hibernate add on top](#what-jpa--hibernate-add-on-top)
+      - [Why Mybatis becomes painful with complex domains](#why-mybatis-becomes-painful-with-complex-domains)
+      - [Why JPA feels easier for rich domains](#why-jpa-feels-easier-for-rich-domains)
+      - [The hidden cost of JPA (important)](#the-hidden-cost-of-jpa-important)
+      - [Summary](#summary)
 
 
 # 性能优化-JVM-MYSQL
@@ -4414,6 +4421,8 @@ Follow the same initialization process as AOP
 
 ## Spring之整合Mybatis底层源码解析
 
+[Mind map](https://www.processon.com/view/link/5f153429e401fd2e0deefd01)
+
 ### How do we create bean for `@Mapper`?
 - Why do we need to create Bean for `@Mapper` ?
 - we want user to define the **interface** such as `OrderService`, `UserService`, as well as the method such as `findAll`, `findById`; the ORM will take care of the internal implementation / mapping to SQL.
@@ -4527,5 +4536,100 @@ External system (DB / network / cache)
 
 > Actually not just `MyBatis`, but also other ORM frameworks, such as `Spring Data` or `Hibernate` they follow the same **PATTERN**
 
+### Final Note on Mybatis
 
+#### Mybatis is not a ORM. it is a SQL -> Object mapper
+- MyBatis map rows to POJOS.
+- JPA/Hibernate map databses state to managed object graphs.
+- Runtime Model
+  ```
+    SQL
+    → JDBC ResultSet
+    → Column values
+    → Mapping rules
+    → New POJO(s)
+    → return
+  ```
+  Characteristics:
+  - Every query execution creates new objects
+  - No persistence context
+  - No identity guarantee
+  - No lifecycle tracking
+  - No dirty checking
+  - No automatic flushing
+  
+  Result mapping, not object-relational mapping
 
+#### What JPA / Hibernate add on top
+
+- JPA introduces a persistence context (Unit of work)
+  - Identity map ( one java object per DB row per context)
+  - Entity Lifecycle states (managed / detached/ removed)
+  - Dirty checking
+  - Cascades
+  - Lazy loading
+  - Relationship Management
+  
+  Runtime  model:
+  ```
+    SQL
+    → Entity
+    → Managed
+    → Tracked
+    → Flushed
+    → Cached
+  ```
+
+#### Why Mybatis becomes painful with complex domains
+
+As domain complexity grows (many 1-to-many relationships):
+You must manually handle:
+
+- Join explosion
+- Object graph assembly
+- Parent row deduplication
+- Collection population
+- N+1 avoidance
+- Update ordering
+- Transactional consistency
+- Example pain point:
+  - One Order with many OrderLines
+  - SQL returns duplicated Order rows
+  - You must group and merge manually
+
+MyBatis makes domain complexity explicit — it does not hide it.
+
+#### Why JPA feels easier for rich domains
+
+JPA hides complexity inside the framework:
+- Relationship navigation
+- Cascades
+- Lazy proxies
+- Automatic joins
+- Dirty tracking
+- Result:
+  - Cleaner business code
+  - Rich domain models
+  - Less boilerplate
+
+But this convenience has a cost.
+
+#### The hidden cost of JPA (important)
+
+ORM complexity is not free:
+- Unpredictable SQL
+- Accidental N+1 queries
+- Automatic flushes at unexpected times
+- Memory overhead (snapshots, proxies)
+- GC pressure
+- Latency spikes (especially p99)
+
+- This is why ORMs are risky in:
+  - low-latency systems
+  - trading / OMS / EMS
+  - write-heavy hot paths
+
+#### Summary
+
+> JPA reduces application complexity by increasing framework complexity.
+MyBatis reduces framework complexity by increasing application complexity.
