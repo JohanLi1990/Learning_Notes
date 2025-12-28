@@ -102,6 +102,11 @@
     - [**Most important breakpoints \& SUMMARY**](#most-important-breakpoints--summary)
   - [Spring事件监听使用和原理源码](#spring事件监听使用和原理源码)
   - [Spring IOC container extension point](#spring-ioc-container-extension-point)
+  - [Spring之整合Mybatis底层源码解析](#spring之整合mybatis底层源码解析)
+    - [How do we create bean for `@Mapper`?](#how-do-we-create-bean-for-mapper)
+    - [FactoryBean](#factorybean)
+    - [`MybatisMapperScan` extends `ClassPathBeanDefinitionScanner`](#mybatismapperscan-extends-classpathbeandefinitionscanner)
+    - [Question: what happened if you invoke `findOrderService` from one of the interface?](#question-what-happened-if-you-invoke-findorderservice-from-one-of-the-interface)
 
 
 # 性能优化-JVM-MYSQL
@@ -4406,5 +4411,121 @@ Follow the same initialization process as AOP
       }
 
     ```
+
+## Spring之整合Mybatis底层源码解析
+
+### How do we create bean for `@Mapper`?
+- Why do we need to create Bean for `@Mapper` ?
+- we want user to define the **interface** such as `OrderService`, `UserService`, as well as the method such as `findAll`, `findById`; the ORM will take care of the internal implementation / mapping to SQL.
+- **BUT** Spring does not support `@Component` on `Interface`.
+- So we need to leverage `FactoryBean`
+
+### FactoryBean
+- A delegation / indirection mechanism by Spring to create a Bean *dynamically*
+- `Bean name → FactoryBean → actual object`
+- so effectively
+  ```java
+  @Autowired
+  UserRepository repo;
+      // equals
+  factoryBean.getObject()
+  ```
+- In reality, the FactoryBean creates a proxy
+  ```java
+  // the actual Bean!!
+  Proxy.newProxyInstance(
+      UserRepository.class.getClassLoader(),
+      new Class[]{UserRepository.class},
+      invocationHandler
+  );
+
+  // Mybatis:
+    SqlSession session = ...
+    return session.getMapper(OrderMapper.class);
+  ```
+- Now the question is how do we  *wire* the FactoryBean into the framework? Such that no matter how many `@Repository` or `@Mapper` are there, we can create proxy Bean for all those Interfaces.
+- What do we want? 
+  - when scanning those interfaces marked with `@Mapper` or `@Repository`, we want to automatically create `FactoryBean` for them in `BeanDefinitionMap`, 
+  - later on when during the actual Bean creations, the framwork will call getBean, which will return the actual Bean. 
+  - **How do we do that ?**
+     -  During Class Path scanning, we need to implement our own scanning logic to include the `@Mapper` or `@Repository`
+
+### `MybatisMapperScan` extends `ClassPathBeanDefinitionScanner`
+- Override `doScan`, for all scanned beanDefintion, create `MyBatisFactoryBean`
+- override `isCandidateComponent` to only include `@Mapper` with interface.
+- To include the customized scanner, we need to
+  - use `@Import`
+  - for `MybatisBeanDefinitionRegistrar`
+  ```java
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target(ElementType.TYPE)
+  @Import(MybatisImportBeanDefinitionRegistrar.class)
+  public @interface MapperScan {
+      String value() default "";
+  }
+
+
+  @ComponentScan("com.spring.demo.component")
+  @Configuration
+  @MapperScan("com.spring.demo.mybatis")
+  public class ApplicationConfig {
+
+    // !! very imporant, 
+    // exeuction is actually done by this guy 
+    // the frameork is just responsible
+    // for automatically booting up beans that 
+    // later might need SqlSession from this factory
+    @Bean
+    public SqlSessionFactory sqlSessionFactory() throws IOException {
+        InputStream inputStream = Resources.getResourceAsStream("mybatis.xml");
+        SqlSessionFactory sqlSessionFactory = new SqlSessionFactoryBuilder().build(inputStream);
+        return sqlSessionFactory;
+    }
+
+  }
+  ```
+### Question: what happened if you invoke `findOrderService` from one of the interface?
+```
+// Spring Data
+Method
+ → QueryMethod
+ → QueryLookupStrategy
+ → JpaQuery
+ → EntityManager
+ → Hibernate
+ → SQL
+
+
+// MyBatis
+Method
+ → MapperMethod
+ → MappedStatement
+ → SqlSession
+ → Executor
+ → JDBC
+
+```
+Under the hood is the same:
+> Proxy -> Invocation Handler -> Method Metadata -> Execution Pattern
+```
+Interface
+   ↓
+Proxy
+   ↓
+InvocationHandler
+   ↓
+Method metadata
+   ↓
+Execution pattern
+   ↓
+External system (DB / network / cache)
+
+// MyBatis
+// JDK Proxy → MapperProxy → SQL execution
+
+```
+
+> Actually not just `MyBatis`, but also other ORM frameworks, such as `Spring Data` or `Hibernate` they follow the same **PATTERN**
+
 
 
