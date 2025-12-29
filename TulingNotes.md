@@ -114,6 +114,9 @@
       - [Why JPA feels easier for rich domains](#why-jpa-feels-easier-for-rich-domains)
       - [The hidden cost of JPA (important)](#the-hidden-cost-of-jpa-important)
       - [Summary](#summary)
+  - [Spring AOT提前优化](#spring-aot提前优化)
+    - [Mitagation techniques](#mitagation-techniques)
+    - [Spring AOT under the hood](#spring-aot-under-the-hood)
 
 
 # 性能优化-JVM-MYSQL
@@ -4633,3 +4636,86 @@ ORM complexity is not free:
 
 > JPA reduces application complexity by increasing framework complexity.
 MyBatis reduces framework complexity by increasing application complexity.
+
+---
+## Spring AOT提前优化
+
+- **Ahead of time compilations**
+> `Code -> Native` vs `Code -> Byte Code -> Native`
+
+- **GraalVM**
+![Graal](./GraalVM.png)
+
+
+- **SpringBoot AOT**
+![SpringBoot-AOT](./springboot-aot.png)
+> `mvn -Pnative native:compile`
+
+- Key mental model:
+  - > Native image = AOT-compiled code + a smaller Java runtime + managed heap.
+  - No JIT compilation at runtime
+  - still a runtime
+  - still GC + GC threads
+  - Still "background runtime threads" , but fewer/different than Hotspot.
+
+- GraalVM limitations
+when compiling binary executables, **mostly** must be known at build time.
+  - **Reflection and dynamic access**
+    - anything that relies on
+      - `Class.forname`
+      - `Method.invoke`
+      - `Field.setAccessible(true)`
+    - Why? 
+      - Native image does closed-world analysis
+      - only classes / methods reachable at build time are included.
+      - Refelction breaks reachability analysis unless explicitly declared
+    - Mitigations
+      - declare reflection metadata, method/constructor access, field access
+  - **Dynamic proxies & bytecode generation**
+    - cglib, bytebuddy, asm all broke
+    - **JDKProxy** still works.
+    - because there is no classloader in the traditional JVM sense at runtime.
+  - **Classloading & resource scanning**
+    - No classpath, classes are compiled into the binary
+  - **JNI, UNSAFE, and low-level JVM tricks**
+    - partially supported
+    - No hotspot intrinsics
+    - No JIT-based escape analysis
+    - No JVM -level biased locking tricks
+    - Disruptor sytle unsafe hacks are gone.
+  - **Garbage Collection limitations (important!)**
+    - Graal runtime GC, 
+      - no G1, ZGC, Shenandoah
+      - limited GC algorithms
+      - GC pause are still real, less mature than HotSpot G1/ZGC
+  - **Failure moves to runtime**
+
+### Mitagation techniques
+- RuntimHints
+  - ReflectionHints
+  - ResourceHints
+  - SerializationHints
+  - ProxyHints
+  - ReflectionHints
+- `@RegisterReflectionForBinding`
+  - Basically import all methods metada to `reflect-config.json`
+
+- Use RuntimeHintsRegistrar (fine grained control)
+  - Useful for importing 3rd party libraries metadata
+
+- `@Reflective` on specific method (fine grained control)  
+
+### Spring AOT under the hood
+
+Spring AOT pre-built everything that `BeanDefinition` needs at runtime, 
+Steps:
+- > using `spring-boot-maven-plugin`, `ProcessAotMojo.execute()` method
+- `SpringApplicationAotProcessor.process()`
+- `ContextAotProcessor.doProcess()`
+- `performAotProcessing()`
+- `generator.processAheadOfTime(applicationContext, generationContext)`
+- `ApplicationContextAotGenerator.processAheadOfTime()`
+- `applicationContext.refreshForAotProcessing(generationContext.getRuntimeHints()`
+
+just create `BeanDefinition`, no real beans.
+When creating native images, all hints contribute to code gene
