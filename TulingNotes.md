@@ -117,6 +117,7 @@
   - [Spring AOT提前优化](#spring-aot提前优化)
     - [Mitagation techniques](#mitagation-techniques)
     - [Spring AOT under the hood](#spring-aot-under-the-hood)
+  - [SpringMVC无XML启动流程和请求流程](#springmvc无xml启动流程和请求流程)
 
 
 # 性能优化-JVM-MYSQL
@@ -4719,3 +4720,137 @@ Steps:
 
 just create `BeanDefinition`, no real beans.
 When creating native images, all hints contribute to code gene
+
+---
+## SpringMVC无XML启动流程和请求流程
+
+Back in the day, we used to write `web.xml` like this
+```
+<!--spring 基于web应用的启动-->
+<listener>
+  <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+</listener>
+<!--全局参数：spring配置文件-->
+<context-param>
+  <param-name>contextConfigLocation</param-name>
+  <param-value>classpath:spring-core.xml</param-value>
+</context-param>
+<!--前端调度器servlet-->
+<servlet>
+  <servlet-name>dispatcherServlet</servlet-name>
+  <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+  <!--设置配置文件的路径-->
+  <init-param>
+    <param-name>contextConfigLocation</param-name>
+    <param-value>classpath:spring-mvc.xml</param-value>
+  </init-param>
+  <!--设置启动即加载-->
+  <load-on-startup>1</load-on-startup>
+</servlet>
+<servlet-mapping>
+  <servlet-name>dispatcherServlet</servlet-name>
+  <url-pattern>/</url-pattern>
+</servlet-mapping>
+```
+**But why? and how does it work?**
+**with Servlet 3.0, we don't need this anymore.**
+
+- using **SPI(Service Provider Interface)** to hook spring with Tomcat
+  - `ServletContainerInitializer` is looked up via the jar serivces api
+  - The framework providing an implementation of the `ServletContainerInitializer` MUST bundle in the `META-INF/services` directory of the jar file a file called `javax.servlet.ServletContainerInitializer`, as per the jar services API, that points to the implmentation class of the `ServletContainerInitializer`
+  - then use `java.util.ServiceLoader.load`
+
+- **How does Spring MVC implements SPI?**
+  - Tomcat sees calls `DispatchServelt#init()` via the Servlet
+  ```
+    Tomcat startup
+      |
+      |-- scans JARs for META-INF/services/...ServletContainerInitializer   (SPI)
+      |
+      |-- loads org.springframework.web.SpringServletContainerInitializer
+      |
+      |-- finds WebApplicationInitializer classes (via @HandlesTypes)
+      |
+      |-- calls WebApplicationInitializer#onStartup(ServletContext)
+              |
+              |-- servletContext.addServlet("dispatcher", new DispatcherServlet(...))
+              |-- mapping "/", loadOnStartup, etc.
+  ```
+  - Tomcat invokes `DispatchServlet#init()` -> `FrameworkServlet#initWebApplicationContext()`, set parent container (not needed anymore in Spring boot, it was a legacy feature because back in the days you can choose to use Spring MVC or Struts framework, but now it is only Spring MVC.)
+  
+  - `configureAndRefreshWebApplicationContext(cwac)` -> register a `ContextRefreshedEvent`
+  - when `IOC` container finishes creating all the beans, `FrameworkServlet.this.onApplicationEvent(event)` -> `initStrategies(context)` -> hook up all our controllers and their request mappings.
+
+  - Take all the `ReqeustMappingHandlerMapping`, `RequestmappingHandlerAdapter`, `HandlerExceptionResolver` beans, and put them into dispatcherServlet.
+  
+  - Where does `ReqeustMappingHandlerMapping`, `RequestmappingHandlerAdapter`, `HandlerExceptionResolver` beans come from?
+    - We used `@EnableWebMvc` -> `@Import(DelegatingWebMvcConfiguration.class)`
+    ![mvc](./webMVC.png)
+    - Samething applies to Spring Boot.
+  
+  - How does SpringMVC work under the hood?
+    ![mvc](./SpringMVCProcess.png)
+    - checkout `DisaptchServlet#doDispatch()`
+  
+  - How does @RequestMapping works under th hood.
+    - Request Mapping is parsed at startup, converted into a mapping table, and at runtime Spring does **only** fast method lookups + method invocation
+    ```
+      startup ───────────────► mapping built
+      request ───────────────► mapping lookup
+      invoke ────────────────► argument resolution
+      return ────────────────► response handling
+    ```
+    
+    - **During Startup**
+      - Spring finds all `@controller` beans
+      - For each controller:
+        - reflectively scans methods
+        - looks for `@RequestMapping`
+      - Each method is converted and added to  `Map<RequestMappingInfo, HandlerMethod
+        - `RequestMappingInfo` = path + HTTP method + params + headers + consumes + produces
+        - `HandlerMethod` = bean instance + Method + metadata
+    
+    - **Runtime**, when requests comes in
+      - `DispatchServlet` -> HandlerMapping (RequestMappingHandlerMapping) -> find matching `RequestMappingInfo`
+      - iterates mappings, apply predicate checks, 
+        - path match
+        - HTTP method
+        - headers
+        - content type
+      - picks bets match --> HandlerMethod
+    
+    - **Invocation**: arguments resolved 
+      - get Handler Adapter `RequestMappingHandlerAdapter`
+      - reolves paramters via pluggable resolves:
+  
+        | Parameter            | Resolver                             |
+        | -------------------- | ------------------------------------ |
+        | `@PathVariable`      | PathVariableMethodArgumentResolver   |
+        | `@RequestParam`      | RequestParamMethodArgumentResolver   |
+        | `@RequestBody`       | RequestResponseBodyMethodProcessor   |
+        | `HttpServletRequest` | ServletRequestMethodArgumentResolver |
+
+      - then `method.invoke(controllerBean, resolvedArgs)`
+
+    - **Return value handling**
+      - Return value goes through
+      
+        | Return type      | Handler                            |
+        | ---------------- | ---------------------------------- |
+        | `String`         | ViewNameMethodReturnValueHandler   |
+        | `@ResponseBody`  | RequestResponseBodyMethodProcessor |
+        | `ResponseEntity` | HttpEntityMethodProcessor          |
+
+      - Then  -> message convertes (`HttpMessageConverter`)
+      - response written.
+    
+    - Internal data structure
+      ```
+      RequestMappingHandlerMapping
+      └─ MappingRegistry
+          ├─ Map<RequestMappingInfo, HandlerMethod>
+          ├─ Map<String, List<RequestMappingInfo>>  (path index)
+          └─ Map<HandlerMethod, CorsConfig>
+
+      ```
+  
