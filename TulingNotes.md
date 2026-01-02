@@ -118,6 +118,7 @@
     - [Mitagation techniques](#mitagation-techniques)
     - [Spring AOT under the hood](#spring-aot-under-the-hood)
   - [SpringMVC无XML启动流程和请求流程](#springmvc无xml启动流程和请求流程)
+  - [SpringMVC子父容器启动流程](#springmvc子父容器启动流程)
 
 
 # 性能优化-JVM-MYSQL
@@ -4853,4 +4854,12 @@ Back in the day, we used to write `web.xml` like this
           └─ Map<HandlerMethod, CorsConfig>
 
       ```
-  
+
+## SpringMVC子父容器启动流程
+- `ContextLoadListener` is the parentBeanfactory, which is in charge of core business components such as, `@Services`, `@Repository`, `@Datasource`, `@TransactionManager`, (`Spring` context)
+- `DispatchServlet` is the child/non-root beanfactory which is in charge of `@Controller`s (`Spring-MVC` context)
+- When child container whats to autowire beans from parent container, it will find from its own container; if it is not there, it will search parent contiainer (`AbstractBeanFactory#doGetBean`)
+
+- **As of Spring Boot 2/3**, we don't really nee this separation of context , the defualt is a commonly single context. But you can create parent/child explicitly (and frameworks like Spring Cloud) may introduce additional parent contexts in some setups. 
+
+- We cannot let parent container (`spring`) manage all the beans, because `spring-mvc` only search for its own container for `HandlerMethods` during intialization; without `HandlerMethods` it cannot do mappings. 
