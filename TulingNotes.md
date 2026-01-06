@@ -119,6 +119,26 @@
     - [Spring AOT under the hood](#spring-aot-under-the-hood)
   - [SpringMVC无XML启动流程和请求流程](#springmvc无xml启动流程和请求流程)
   - [SpringMVC子父容器启动流程](#springmvc子父容器启动流程)
+  - [MyBatis解析全局配置文件](#mybatis解析全局配置文件)
+    - [what is the differenece between JPA and Hibernate?](#what-is-the-differenece-between-jpa-and-hibernate)
+    - [What is the role of Spring-ORM?](#what-is-the-role-of-spring-orm)
+    - [why Spring-ORM exists?](#why-spring-orm-exists)
+    - [How does a MyBatis Mapper work:](#how-does-a-mybatis-mapper-work)
+    - [Why do we need MyBatis, what is wrong with just JDBC?](#why-do-we-need-mybatis-what-is-wrong-with-just-jdbc)
+    - [MyBatis Parsing Configuration](#mybatis-parsing-configuration)
+  - [MyBatis源码—SQL操作执行流程源码深度剖析](#mybatis源码sql操作执行流程源码深度剖析)
+  - [Java Reflection, Class Loading \& Spring IOC - Key Insights Summary](#java-reflection-class-loading--spring-ioc---key-insights-summary)
+    - [3 Distinct layers you must never mix up](#3-distinct-layers-you-must-never-mix-up)
+    - [What the ClassLoader actually does (and does NOT do)](#what-the-classloader-actually-does-and-does-not-do)
+    - [How Spring finds `@Component` classes](#how-spring-finds-component-classes)
+    - [Where Spring actaully mutates `beanClass`](#where-spring-actaully-mutates-beanclass)
+    - [What `Class.forName()` really is](#what-classforname-really-is)
+    - [Why `Class.forName` ≠ `new Car()`](#why-classforname--new-car)
+    - [Why Spring must avoid eager loading](#why-spring-must-avoid-eager-loading)
+    - [`Class<?> clazz` clarified](#class-clazz-clarified)
+    - [Correct final mental model](#correct-final-mental-model)
+    - [ANOTHER final note on `Class.forName`](#another-final-note-on-classforname)
+    - [ANOTHER ANOTHER final note on `Class.getDeclaredConstructors0(boolean var1)`](#another-another-final-note-on-classgetdeclaredconstructors0boolean-var1)
 
 
 # 性能优化-JVM-MYSQL
@@ -4863,3 +4883,405 @@ Back in the day, we used to write `web.xml` like this
 - **As of Spring Boot 2/3**, we don't really nee this separation of context , the defualt is a commonly single context. But you can create parent/child explicitly (and frameworks like Spring Cloud) may introduce additional parent contexts in some setups. 
 
 - We cannot let parent container (`spring`) manage all the beans, because `spring-mvc` only search for its own container for `HandlerMethods` during intialization; without `HandlerMethods` it cannot do mappings. 
+
+
+## MyBatis解析全局配置文件
+
+### what is the differenece between JPA and Hibernate?
+- JPA is a specification (API + rules)
+- Hibernate is an implementation of that specification (plus a lot more)
+
+  ```
+  Your code
+    |
+    |  (interfaces, annotations, contracts)
+    v
+  JPA  ───────────►  Specification (javax/jakarta.persistence)
+    |
+    |  (actual working code)
+    v
+  Hibernate  ─────►  Concrete ORM engine
+
+  ```
+
+  in modern Spring APP:
+  ```
+    @Entity
+    class Order { ... }
+
+    @PersistenceContext
+    EntityManager em;
+
+  ```
+
+  but at runtime
+  ```
+  EntityManager → HibernateEntityManager
+  ```
+
+### What is the role of Spring-ORM?
+- Hibernate = ORM engine
+- Spring-ORM = adapter layer that lets Spring manage ORM engines correctly.
+  ```
+  Your business code
+    |
+  Spring @Transactional / @Repository
+    |
+  Spring ORM  ←←← THIS LAYER
+    |
+  JPA / Hibernate APIs
+    |
+  Hibernate ORM engine
+    |
+  JDBC
+    |
+  Database
+
+  ```
+- It handles Transaction integration
+  - Spring-ORM provides `JpaTransactionManger`, `HibernateTransactionManager`
+  - it makes sure, for code like:
+    ```
+    @Transactional
+    public void placeOrder() {
+        orderRepo.save(order);
+    }
+    ```
+    - Same **EntityManager/Session** is bound to the thread
+    - Same **JDBC Connection** is resused
+    - Commit / rollback happens correctly
+    - Lazy loading works inside transaction
+    - ORM flush happens at the right time.
+
+- It handles Resource Lifecycle management (EntityManger Session)
+- handles Exception Translation
+- JPA bootstrap & wiring
+
+### why Spring-ORM exists?
+Before Spring-ORM:
+Hibernate had its own transaction model, JTA had another, JDBC had another, mixing them was painful.
+So spring them unified all of this under: `@Transactional`
+```
+Hibernate:
+- ORM engine
+- SQL generation
+- Entity state management
+
+Spring-ORM:
+- Transaction coordination
+- Session / EntityManager lifecycle
+- Exception translation
+- Integration glue with Spring Core
+```
+
+### How does a MyBatis Mapper work:
+```
+Your Service Code
+ |
+ |  calls
+ v
+UserMapper.findById(42)
+ |
+ |  (dynamic proxy)
+ v
+MyBatis Mapper Proxy
+ |
+ |  lookup statementId:
+ |  "com.foo.UserMapper.findById"
+ |
+ v
+UserMapper.xml
+ |
+ |  <select id="findById">
+ |     SELECT * FROM user WHERE id = #{id}
+ |  </select>
+ |
+ v
+JDBC
+ |
+ v
+Database
+ |
+ v
+ResultSet
+ |
+ v
+RowMapper / ResultMap
+ |
+ v
+User POJO
+```
+
+### Why do we need MyBatis, what is wrong with just JDBC?
+- Create DB connection every time, affect performance; should use a DB connection pool.
+- SQL hardcoded; no separation between SQL and JAVA code; hard to maintain
+- ResultSet mapping hardcoded.
+
+### MyBatis Parsing Configuration
+![parsing MyBatis](./MyBatisParsing.png)
+
+- MyBatis Dynamic Sql Source
+  - in MyBatis you can dynamically define SQL with XML Node.
+    ```xml
+      <select id="findUsers" resultType="User">
+        SELECT id, user_name, user_creattime
+        FROM user
+        WHERE 1 = 1
+        <if test="userName != null">
+          AND user_name = #{userName}
+        </if>
+        <if test="startTime != null">
+          AND user_creattime >= #{startTime}
+        </if>
+      </select>
+    ```
+  - At Runtime
+
+    | Parameters passed  | Final SQL                               |
+    | ------------------ | --------------------------------------- |
+    | `{userName}` only  | `... WHERE 1=1 AND user_name = ?`       |
+    | `{startTime}` only | `... WHERE 1=1 AND user_creattime >= ?` |
+    | both               | both conditions                         |
+    | neither            | no conditions                           |
+
+
+---
+## MyBatis源码—SQL操作执行流程源码深度剖析
+
+All CRUD can be performed once user gets the `sqlSession`
+
+- `openSession` process
+  - Executors
+    - CacheExecutor (look into secondary cache)
+    - Executor (Simple, Reuse, Batch), only primary cache used
+- `getMapper`
+  - `MapperProxyFactory<T>`
+  - `MapperProxy<T>#invoke`
+  - `doQuery`
+  - `query`
+
+## Java Reflection, Class Loading & Spring IOC - Key Insights Summary
+
+### 3 Distinct layers you must never mix up
+
+```
+[String]  ──▶  [Class<?>]  ──▶  [Object instance]
+ class name     JVM type        runtime object
+```
+
+Spring deliberately moves from left to right lazily.
+
+### What the ClassLoader actually does (and does NOT do)
+
+- ✅ What it does
+  - Given a fully-qualified class name, locate `com/xushu/Car.class`
+  - Read bytes from classpath / jar
+  - Define the class in JVM (create internal Klass)
+  - Return a `Class<?>`
+- ❌ What it does NOT do
+  - Scan packages
+  - **Read annotations**
+  - **Decide what is a Spring Bean**
+  - Load classes eagerly
+- **ClassLoader is passive. Spring is active**
+
+### How Spring finds `@Component` classes
+
+- from anonotation  `@ComponentScan("com.xushu")`
+- Spring converts package -> resource path: `classpath*:com/xushu/**/*.class`
+- Spring **scans raw `.class` files using ASM**
+- Spring detects `@Component`
+- Spring registers a `BeanDefinition` with 
+  ```
+  beanClassName = "com.xushu.iocbeanlifecycle.Car"
+  ```
+- 🚨 No class loading happens here
+
+### Where Spring actaully mutates `beanClass`
+
+During Bean Creation:
+```
+refresh()
+ └─ finishBeanFactoryInitialization
+     └─ preInstantiateSingletons
+         └─ createBean
+             └─ doCreateBean
+                 └─ createBeanInstance
+                     └─ resolveBeanClass
+                         └─ Class.forName(...)
+```
+At this momement
+```
+"com.xushu.Car"
+↓
+Class<?> Car
+```
+is cached back into the BeanDefinition
+
+### What `Class.forName()` really is 
+
+**Class loading, NOT reflection**
+
+| Operation                   | Category      |
+| --------------------------- | ------------- |
+| `Class.forName(...)`        | Class loading |
+| `clazz.getMethods()`        | Reflection    |
+| `constructor.newInstance()` | Reflection    |
+
+Reflection requires the class to already exist in the JVM.
+
+### Why `Class.forName` ≠ `new Car()`
+
+| Aspect             | `Class.forName()` | `new Car()` |
+| ------------------ | ----------------- | ----------- |
+| Loads class        | ✅                 | ✅           |
+| Initializes class  | Optional          | Always      |
+| Creates instance   | ❌                 | ✅           |
+| Compile-time known | ❌                 | ✅           |
+| Used by frameworks | ✅                 | ❌           |
+
+`Class.forName` makes the type exist
+`new Car()` makes the object exist.
+
+> In a way, `Class.forName` sets up reflection later.
+
+### Why Spring must avoid eager loading
+- Eager loading causes:
+  - static initializers to run too early
+  - side effects during scanning
+  - broken conditionals
+  - circular dependency issues
+  - impossible AOT optimization
+
+- So Spring:
+  - scans without loading
+  - loads only when instantiating
+  - caches the result
+
+### `Class<?> clazz` clarified
+
+```
+if (beanClassObject instanceof Class<?> clazz) {
+    return clazz;
+}
+```
+- `clazz` is just a local variable
+- introduced by java 16+
+- equivalent to
+  ```
+  Class<?> clazz = (Class<?>) beanClassObject;
+
+  ```
+
+### Correct final mental model
+
+```
+Disk (.class files)
+   ↓  (Spring scans via ASM)
+BeanDefinition (String class name)
+   ↓  (resolveBeanClass)
+Class.forName(...)
+   ↓
+Class<?> (JVM Klass metadata)
+   ↓  (reflection)
+Constructor / Field / Method
+   ↓
+Object instance
+```
+**Spring decides what, ClassLoader decides where, JVM decides how**
+
+> Spring IoC separates component discovery, class loading, and object instantiation into distinct phases. 
+
+> Spring scans .class files using bytecode metadata to discover candidate components without loading them. It stores fully-qualified class names in BeanDefinitions and defers class loading until instantiation time, when it explicitly calls Class.forName to resolve the class into a Class<?>. Reflection is then used to construct and inject dependencies. 
+
+> This separation avoids premature side effects, enables conditional configuration, supports AOT compilation, and keeps class loading deterministic.
+
+
+### ANOTHER final note on `Class.forName`
+- `Class.forName` establishes the Class<?> object, which is the prerequisite for all later reflection-based operations in Spring IoC.
+  ```
+  String className
+    ↓  (class loading)
+  Class.forName(...)
+    ↓
+  Class<?> clazz
+    ↓  (reflection)
+  clazz.getConstructors()
+  clazz.getDeclaredFields()
+  constructor.newInstance(...)
+  ```
+
+- Even though `Class<?> clazz` is unknown, can Spring still invoke constructors?
+
+  - ✅ **Yes — and this is a key JVM insight**
+  - `Class<?>` being "unknown" only means 
+    - Unknown at compile time
+    - known at runtime
+  - At runtime, JVM knows everything about that class
+    - its constructors
+    - parameter types
+    - annotations
+    - access modifiers
+  - So Spring can do:
+    ```java
+      Constructor<?> ctor = clazz.getDeclaredConstructor(...);
+      Object bean = ctor.newInstance(args);
+    ```
+  - This works because
+    - `clazz` is backed  by fully-loaded JVM `Klass` metadata
+    - generics `<?>` are irrelevant at runtime
+    - reflection is intentionally `dynamic`
+  - This is excatly why framework can exists
+
+- Spring does not require all beans to have a no-args constructor
+  - ✅ The correct rule is:
+  - > Spring requires that it can resolve some constructor whose arguments it knows how to supply.
+
+### ANOTHER ANOTHER final note on `Class.getDeclaredConstructors0(boolean var1)`
+
+- Native method, searches the internal `Klass` structure for constructors
+- At this point, class has already been loaded. 
+- JVM has already created the internal metadata
+- Reflection is operating on already-loaded class metadata
+- Internal Hotspot strucutre:
+  ```
+    Klass (C++ object)
+    ├─ InstanceKlass
+    │   ├─ constant pool
+    │   ├─ method table
+    │   │   ├─ <init>(...)V   ← constructors live here
+    │   │   ├─ other methods
+    │   ├─ fields
+    │   ├─ access flags
+    │   └─ annotations
+  ```
+- What this method does under the hood:
+  - Step 1: Get the Klass* from the Class<?>
+    ```
+    Class<Car> → oop → Klass*
+    ```
+  - Step 2: Iterate over the method table
+    - For each method in the class:
+      - Check method name == <init>
+      - Check access flags (public / non-public)
+      - Filter based on publicOnly flag
+    - So yes — it is literally scanning the method metadata.
+  - Step 3: For each matching constructor, create a Java wrapper
+    - For every <init> method found, JVM creates a `java.lang.reflect.Constructor
+    - This object contains references to:
+      - declaring class
+      - parameter types
+      - exception types
+      - access flags
+      - annotation metadata
+      - a pointer back to the native method metadata
+    - **This wrapping step is where reflection objects are born.**
+  - Step 4: returns `Constructor<T>[] result;`
+
+- Why this method must be **native**
+
+  > This cannot be done in pure Java because:
+  - Method tables live in native JVM memory
+  - Java code cannot directly walk Klass / Method*
+  - Performance and safety reasons
+  > Reflection is a controlled, read-only window into JVM internals. 
