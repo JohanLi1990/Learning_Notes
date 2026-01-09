@@ -58,6 +58,12 @@
     - [Day 5 Takeaways](#day-5-takeaways)
       - [Session 2](#session-2)
       - [Session 3](#session-3)
+    - [Day 6 Benchmark takeaway](#day-6-benchmark-takeaway)
+      - [1️⃣ What p50 / p95 / p99 really mean (and why you care)](#1️⃣-what-p50--p95--p99-really-mean-and-why-you-care)
+      - [2️⃣ How to calculate percentiles (the only way that matters)](#2️⃣-how-to-calculate-percentiles-the-only-way-that-matters)
+      - [3️⃣ Lost updates are not theoretical](#3️⃣-lost-updates-are-not-theoretical)
+      - [Secondary (but important) Day 6 lessons](#secondary-but-important-day-6-lessons)
+      - [📌 Final Day 6 mental checklist (write this in your notebook)](#-final-day-6-mental-checklist-write-this-in-your-notebook)
     - [Disruptor Paddings 番外篇](#disruptor-paddings-番外篇)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
@@ -139,6 +145,16 @@
     - [Correct final mental model](#correct-final-mental-model)
     - [ANOTHER final note on `Class.forName`](#another-final-note-on-classforname)
     - [ANOTHER ANOTHER final note on `Class.getDeclaredConstructors0(boolean var1)`](#another-another-final-note-on-classgetdeclaredconstructors0boolean-var1)
+    - [JVM Class Metadata, `Klass`, and Metaspace - Notes](#jvm-class-metadata-klass-and-metaspace---notes)
+      - [`Klass` vs `java.lang.Class`](#klass-vs-javalangclass)
+      - [Where calss metadata lives](#where-calss-metadata-lives)
+      - [Annotation Lifecycle](#annotation-lifecycle)
+      - [Metaspace mental model (refined)](#metaspace-mental-model-refined)
+      - [Metaspace vs native memory (important distinction)](#metaspace-vs-native-memory-important-distinction)
+      - [Reflection and native methods](#reflection-and-native-methods)
+      - [Why metadata is not on the heap](#why-metadata-is-not-on-the-heap)
+      - [ClassLaoding Summary](#classlaoding-summary)
+    - [What does parent delegation model ensure](#what-does-parent-delegation-model-ensure)
 
 
 # 性能优化-JVM-MYSQL
@@ -2648,6 +2664,98 @@ Dedicate one partition for TBR, because they might get heavy.
 
 ---
 
+### Day 6 Benchmark takeaway
+
+#### 1️⃣ What p50 / p95 / p99 really mean (and why you care)
+
+- p50 (median)
+  - → “Typical” request latency
+  - → In your steady runs: ≈ service time (~15ms)
+
+- p95
+  - → “Bad but common” tail
+  - → Often shows mild contention, scheduling jitter
+
+- p99
+  - → “System stress indicator”
+  - → Tells you where latency comes from:
+    - If **p99 ≈ svc** → work-bound
+    - If **p99 ≫ svc and q dominates** → queueing / overload
+    - If **execQ** dominates → executor / scheduling / core starvation
+
+#### 2️⃣ How to calculate percentiles (the only way that matters)
+
+- Collect raw latency samples (long nanos)
+- Snapshot a window
+- Sort
+- Index:
+  ```
+  p50 = samples[0.50 * n]
+  p95 = samples[0.95 * n]
+  p99 = samples[0.99 * n]
+  ```
+
+Two important truths you verified empirically:
+
+- Percentiles cannot be computed incrementally (averages lie)
+- Sample size matters:
+  - p99 is meaningless with 10 samples
+  - starts becoming trustworthy with hundreds+
+
+#### 3️⃣ Lost updates are not theoretical
+
+- What went wrong
+  ```
+  int i = idx;
+  ...
+  idx = i + 1;
+
+  ```
+
+- With multiple threads:
+  - two threads read the same idx
+  - both write to the same slot
+  - one sample silently disappears
+- Why volatile did NOT save you
+  - volatile → visibility
+  - not atomicity
+  - read–modify–write is still a race
+- The fix you applied (correct)
+  ```
+  int i = idx.getAndIncrement() & (CAP - 1);
+  ```
+  And the proof:
+  - Server showed 300 tasks completed
+  - Recorder originally showed ~260
+  - After fix → 300 recorded
+
+That’s not an academic race — that’s production-grade data corruption.
+You caught this because you trusted counters over intuition. That’s the right instinct.
+
+#### Secondary (but important) Day 6 lessons
+
+You also implicitly learned:
+
+- Client behavior affects server latency
+(writability, batching, scheduling matter)
+  - Writing 50 msgs per second but not flushing it will not create the steady rate you expect! It will create a batch flush which essentially is a tiny burst. 
+  - Solution: Delegate to `ctx.executor` to execute the write and flush asynchronously
+- Executor defaults lie
+  - (core=1 + bounded queue ⇒ serial system)
+
+- Tail latency ≠ throughput problem
+  - You had great throughput and bad p99 in some configs
+
+- Fairness ≠ starvation freedom
+  - Cold p99 ≈ svc + 1 slot ≠ starvation
+
+#### 📌 Final Day 6 mental checklist (write this in your notebook)
+
+- is p99 coming from **q**, **execQ** or **svc**
+- is my **measurement correct** (no lost updates, enough samples)?
+- is the system overloaded or just poorly scheduled?
+- is the client accidentally creating bursts?
+
 ### Disruptor Paddings 番外篇
 - **How is padding done to protect hot area from false sharing**
   - Disruptor padding is designed to reduce false sharing, which happens when:
@@ -4351,6 +4459,14 @@ Follow the same initialization process as AOP
   - Bean lifecycle call back:
     - `PostConstruct`,  or `InitializingBean`
     - `Predestroy`, or `DisposableBean`
+    - `InitializingBean` is bean-level initialization lifecycle extension point, executed after dependency injection and before the bean is exposed for use.
+      - Per bean
+      - invoke `afterPropertiesSet()`
+      - It has similar usage to `PostConstruct`, which is often preferred due to (JSR-250, less coupled to Spring)
+      - Use when
+        - you are writing framework-level code
+        - you need ordering gurantees
+        - you want explicit Spring lifecycle coupling
 
 - Extension point after Bean instantiation (Mature state)
   - `SmartInitializingSingleton`:
@@ -5285,3 +5401,227 @@ Object instance
   - Java code cannot directly walk Klass / Method*
   - Performance and safety reasons
   > Reflection is a controlled, read-only window into JVM internals. 
+
+
+### JVM Class Metadata, `Klass`, and Metaspace - Notes
+
+####  `Klass` vs `java.lang.Class`
+
+`Klass` (Hotspot Internal)
+
+- C++ structure used by HotSpot JVM
+- Represents class metadata
+- Examples:
+  - `InstanceKlass`
+  - `ArrayKlass`
+- Contains:
+  - Field metatadata
+  - Method metadata
+  - Constant pool
+  - Annotation metadata
+  - VTables /itable
+- Lives in Metaspace (native memory)
+- Not visible to Java code
+
+`java.lang.Class`
+
+- Ordinary Java object
+- lives on the Java heap
+- Act as a mirror/handle to `Klass`
+- Internally points to its `Klass`
+
+```
+Heap:
+  java.lang.Class<Foo>
+        |
+        v
+Metaspace (native):
+  InstanceKlass<Foo>
+```
+
+#### Where calss metadata lives
+> All class metadata lives in Metaspace, not on the Java heap
+
+Stored in Metaspace:
+- `Klass` / `InstanceKlass`
+- Constant Pool
+- Method bytecode + metadata
+- Field metada
+- **Annotation metadata**
+- Classloader metadata
+- Virtual dispatch tables
+
+Not stored in Metaspace:
+- Java objects
+- Reflection objects (`Method`, `Field`, `Constructor`)
+- Annotation proxy instance
+
+#### Annotation Lifecycle
+
+**At class load time**
+
+- Annotations are parsed from .class file attributes:
+  - RuntimeVisibleAnnotations
+  - RuntimeInvisibleAnnotations
+- Stored as raw metadata inside InstanceKlass
+- No Java annotation objects created yet
+
+**At reflection time**
+```
+clazz.getDeclaredAnnotations()
+```
+- HotSpot:
+  - Reads annotation metadata from `InstanceKlass`
+  - Lazily creats Java annotation proxy objects
+- Annotation instances:
+  - Live on **heap**
+  - Can be GC'd
+- Source metadata remains in **Metaspace**
+
+#### Metaspace mental model (refined)
+
+> Metaspace is native memory used by HotSpot C++ runtime to store JVM-level metadata that must outlive GC and be accessed efficently by the VM
+
+Key properties:
+- Native memory(outside JVM heap)
+- Not managed by Java GC
+- allocated in chunks
+- Freed on class unloading
+- Replaced PermGen (Java 8++)
+
+#### Metaspace vs native memory (important distinction)
+Metaspace ≠ all native memory
+```
+Native Memory
+ ├─ Metaspace          (class metadata)
+ ├─ Code Cache         (JIT compiled code)
+ ├─ Thread stacks
+ ├─ GC internal data
+ ├─ DirectByteBuffer
+ ├─ JNI allocations
+ └─ OS / libc memory
+
+```
+
+
+#### Reflection and native methods
+
+```
+private native Constructor<T>[] getDeclaredConstructors0(boolean publicOnly);
+```
+
+What happens:
+- Class already loaded -> `InstanceKlass` exisits
+- HotSpot walks constructor metadata in `Klass`
+- Filters `<init>` methods
+- Wrap metadata into Java `Constructor` objects (heap)
+> Native metadata -> heap reflection objects (lazy)
+
+#### Why metadata is not on the heap
+
+- Metadata lifetime != object lifetime
+- Avoid GC scanning and pauses
+- Faster access via C++ pointers
+- Easier class unloading
+- Lower heap pressure
+
+#### ClassLaoding Summary
+
+- Load
+  - Read `.class` bytes
+  - Parse:
+    - Constant Pool
+    - Fields
+    - Methods
+    - Annotations
+  - **Allocate** `InstanceKlass` in Metaspace
+  - Create `java.Lang.Class` mirror (heap)
+  - > Metada is allocated here
+
+- Link
+  - **Verification**
+    - Bytecode verification (CAFE BABE)
+  - **Preparation**
+    - Compute field layouts
+    - Assign offsets
+    - Allocate static fields (in heap, inside `Class` mirror)
+  - **Resolution**
+    - Symbolic refernces -> direct references
+  - > Metadata structures finalized
+
+- Initialize
+  - Run `<clinit>`
+  - Initialize static fields
+  - Execute static blocks
+  - > No new metadata created here
+
+  ```
+  .class file bytes
+        ↓
+  ClassLoader
+        ↓
+  InstanceKlass (Metaspace, native)
+        ↓
+  java.lang.Class (Heap mirror)
+
+  ```
+
+  **Note**:
+  - Class loading orchestration (parent delegation, loadClass) is Java code.
+  - `java.lang.ClassLoader`, parent delegation model
+  - Class parsing and metadata construction (Klass, constant pool, methods, annotations) are HotSpot C++ code.
+
+### What does parent delegation model ensure
+A design choice, not a technical requirements
+
+- Core Classes cannot be spoofed (**SECURITY**)
+  ```
+  loadClass("java.lang.String")
+    → BootstrapClassLoader
+    → always the real String
+  ```
+  Without it an application could define
+  ```
+  package java.lang;
+  public class String { ... }
+
+  ```
+  💥 Consequences:
+
+  - SecurityManager checks bypassed
+  - Class.forName, File, Socket trust violated
+  - JVM invariants broken
+  - ➡️ Delegation ensures java.* is always trusted
+
+- 2️⃣ Type identity remains consistent (**CORRECTNESS**)
+
+  - In JAVA `Class identity = (class name + class loader)`
+  - Parent delegation ensures:
+    - One `java.lang.String`
+    - One `java.lang.Object`
+    - One `java.lang.Class`
+  - Without it
+    - `String loaded by LoaderA ≠ String loaded by LoaderB`
+    - `instanceof` fails unexpectedly
+    - `ClassCastException` everywhere.
+    - API stops composing
+
+- 3️⃣ Core APIs assume delegation implicitly
+  - Many JDK internals assume:
+  - `Object` is the Object
+  - `Classloader` is *the* Classloader
+  - `Throwable` is the Throwable
+  - Without delegation:
+    - You’d need defensive checks everywhere
+    - JVM code complexity explodes
+    - ➡️ Delegation keeps JDK code simple and fast
+- 4️⃣ JVM bootstrap becomes possible
+  - At JVM startup: Java language is not fully usable
+  - Core classes must load first
+  - Circular dependencies must be avoided
+  - Parent delegation creates a well-defined bootstrap order:
+  - `Bootstrap → Platform → Application → Custom`
+
+> Parent delegation is not strictly necessary, but it enforces security, type consistency, and trust boundaries.
+It prevents core classes from being overridden, ensures a single definition of fundamental types, and allows the JVM to safely compose code from different class loaders.
+Advanced systems may intentionally break delegation, but only with great care.
