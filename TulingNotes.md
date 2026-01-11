@@ -64,6 +64,26 @@
       - [3️⃣ Lost updates are not theoretical](#3️⃣-lost-updates-are-not-theoretical)
       - [Secondary (but important) Day 6 lessons](#secondary-but-important-day-6-lessons)
       - [📌 Final Day 6 mental checklist (write this in your notebook)](#-final-day-6-mental-checklist-write-this-in-your-notebook)
+    - [Day 7, GC, Allocation, Structural protections](#day-7-gc-allocation-structural-protections)
+      - [GC \& Allocation](#gc--allocation)
+      - [Latency Measurement](#latency-measurement)
+      - [Queueing \& Backpressure](#queueing--backpressure)
+      - [Overload Handling](#overload-handling)
+      - [Systems Thinking (Big Picture)](#systems-thinking-big-picture)
+    - [Day 7 番外篇 📓 HDRHistogram — Practical \& Conceptual Notes (Low-Latency Context)](#day-7-番外篇--hdrhistogram--practical--conceptual-notes-low-latency-context)
+      - [1. What HDRHistogram **is** (and is not)](#1-what-hdrhistogram-is-and-is-not)
+      - [2. What happens when you record a value](#2-what-happens-when-you-record-a-value)
+      - [3. Is the value “lost”?](#3-is-the-value-lost)
+      - [4. How percentiles (p95 / p99) are computed](#4-how-percentiles-p95--p99-are-computed)
+      - [5. Why HDR uses a linear scan for percentiles](#5-why-hdr-uses-a-linear-scan-for-percentiles)
+      - [6. Why HDR is NOT a Fenwick Tree (BIT)](#6-why-hdr-is-not-a-fenwick-tree-bit)
+      - [7. Is HDR doing “bucket sort”?](#7-is-hdr-doing-bucket-sort)
+      - [8. Accuracy model (very important)](#8-accuracy-model-very-important)
+      - [9. Why HDR reduced OS jitter in practice](#9-why-hdr-reduced-os-jitter-in-practice)
+      - [10. Interval histograms vs cumulative data](#10-interval-histograms-vs-cumulative-data)
+      - [11. One-sentence mental model (keep this)](#11-one-sentence-mental-model-keep-this)
+      - [12. Why this matters for low-latency systems](#12-why-this-matters-for-low-latency-systems)
+      - [Final takeaway](#final-takeaway)
     - [Disruptor Paddings 番外篇](#disruptor-paddings-番外篇)
 - [算法与数据结构番外](#算法与数据结构番外)
   - [(Classic) Red Black Tree](#classic-red-black-tree)
@@ -2756,6 +2776,325 @@ You also implicitly learned:
 - is the system overloaded or just poorly scheduled?
 - is the client accidentally creating bursts?
 
+### Day 7, GC, Allocation, Structural protections
+
+#### GC & Allocation
+- **Per-task** allocation in hot paths is lethal to p99, even if small
+- Allocation pressure manifests as svc tail latency, not just GC logs.
+- GC frequency matters more than GC pause max for latency stability. 
+- Always force allocation side effects(`sink`) or JIT will eliminate them.
+
+#### Latency Measurement
+- p50 lies; **p99 tells the truth**
+- e2e = q + svc; you must decompose to understand tail behavior
+- Sorting-based percentile snapshots are expensive and can perturb results.
+- Logging tasks that throw exceptions silently stop ScheduledExecutorService unless caught.
+
+- > **Unhandled exceptions in scheduled tasks cancel future executions silently**
+  
+  **There is no stack trace at ALL!!! so you need to catch and print them!!!!**
+
+  **Correct Implementation**
+  ```java
+      private void schedulePartitionLogging(int partitionId) {
+          // Log every 1 second
+          if (partitionId != 3) return;
+          statsScheduler.scheduleAtFixedRate(() -> {
+              try {
+                  //            partitionMetricsLogging(partitionId);
+                  partitionLatencyLogging(partitionId);
+              } catch (Throwable t) {
+                  log.error("stat-logger task failed for partition {}", partitionId, t);
+              }
+
+          }, 5, 5, TimeUnit.SECONDS);
+      }
+  ```
+
+#### Queueing & Backpressure
+- Bounding memory ≠ bounding latency.
+- pendingLimit=1024 bounded memory but allowed seconds of queueing.
+- Correct formula: `pendingLimit ≈ latency_budget / svc_p99`
+- Structural limits must be latency-driven, not arbitrary.
+
+#### Overload Handling
+- Sustained overload (not bursts) is required to test backpressure.
+- Rejections must be:
+  - explicit
+  - cheap
+  - observable (metrics)
+  - Hot-family overload must not poison cold families.
+
+#### Systems Thinking (Big Picture)
+- Tail latency is a systems problem, not a single-line fix.
+- GC, scheduling, executor sizing, logging, and backpressure interact.
+- Low-latency engineering is about bounding worst cases, not improving averages.
+
+
+### Day 7 番外篇 📓 HDRHistogram — Practical & Conceptual Notes (Low-Latency Context)
+
+#### 1. What HDRHistogram **is** (and is not)
+
+**HDRHistogram is:**
+
+* A **fixed-size histogram** with logarithmic buckets
+* An **online frequency distribution**
+* A **bounded-error percentile estimator**
+* Designed for **hot-path safety** and **low jitter**
+
+**HDRHistogram is NOT:**
+
+* ❌ A sorting-based percentile calculator
+* ❌ A Gaussian / probabilistic estimator
+* ❌ A Fenwick Tree / BIT
+* ❌ A bucket sort implementation
+* ❌ A raw sample store
+
+> Key idea: **HDR never stores raw latency samples.**
+
+---
+
+#### 2. What happens when you record a value
+
+When you call:
+
+```java
+histogram.recordValue(latencyNs);
+```
+
+What actually happens:
+
+1. HDR computes a **bucket index** from the value
+
+   * Uses bit operations (`highestSetBit`, shifts)
+   * Effectively `log2(value)` + sub-bucket offset
+2. HDR increments a **counter**
+
+   ```text
+   counts[bucketIndex]++
+   ```
+3. The original value is **discarded**
+
+**No allocation. No sorting. No comparison. No locking (Recorder).**
+
+> The value is **classified**, not stored.
+
+---
+
+#### 3. Is the value “lost”?
+
+**Yes — the exact raw value is discarded.**
+**No — the statistical information is not lost.**
+
+What is preserved:
+
+* Frequency
+* Order of magnitude
+* Rank (relative position)
+* Distribution shape
+
+What is discarded:
+
+* Exact nanosecond precision within a bucket
+
+This is **intentional** and **safe** for latency work.
+
+---
+
+#### 4. How percentiles (p95 / p99) are computed
+
+HDR **does not interpolate** and **does not assume any distribution**.
+
+Percentile computation is:
+
+```text
+targetRank = totalCount * percentile
+cumulative = 0
+
+for bucket in ascending order:
+    cumulative += bucket.count
+    if cumulative >= targetRank:
+        return bucketRepresentativeValue
+```
+
+This is:
+
+* Rank selection
+* Based on **actual observed counts**
+* Not curve fitting
+* Not Gaussian
+* Not probabilistic estimation
+
+---
+
+#### 5. Why HDR uses a linear scan for percentiles
+
+HDR percentiles are computed by **scanning all buckets**.
+
+Why this is correct:
+
+* Bucket count is **small and fixed** (~1k–4k)
+* Scan cost is **bounded and predictable**
+* Cache-friendly (contiguous memory)
+* Snapshot happens **infrequently**
+* Recording happens **constantly**
+
+Trade-off chosen by HDR:
+
+* `record()` → **O(1)**
+* `snapshot()` → **O(number_of_buckets)**
+
+This asymmetry is **exactly right** for latency tracking.
+
+---
+
+#### 6. Why HDR is NOT a Fenwick Tree (BIT)
+
+HDR and BIT both involve prefix sums, but:
+
+| Aspect          | Fenwick Tree | HDRHistogram       |
+| --------------- | ------------ | ------------------ |
+| Update cost     | O(log N)     | **O(1)**           |
+| Memory access   | Scattered    | **Contiguous**     |
+| Cache behavior  | Poor         | **Excellent**      |
+| Concurrency     | Hard         | **Easy (striped)** |
+| Snapshot cost   | Low          | Low                |
+| Hot-path safety | ❌            | **✅**              |
+
+HDR avoids BIT intentionally because:
+
+* Recording is on the **hot path**
+* Percentile queries are **cold path**
+* Cache behavior matters more than asymptotic Big-O
+
+---
+
+#### 7. Is HDR doing “bucket sort”?
+
+**No — but it looks similar at a glance.**
+
+Difference:
+
+* **Bucket sort**:
+
+  * Stores values in buckets
+  * Sorts or concatenates them
+  * Produces a fully ordered list
+
+* **HDRHistogram**:
+
+  * Stores **only counts**
+  * Never stores or reorders values
+  * Produces percentiles from frequency distribution
+
+Correct description:
+
+> HDRHistogram performs **bucket classification**, not bucket sorting.
+
+---
+
+#### 8. Accuracy model (very important)
+
+HDR percentiles are **approximate**, but:
+
+* Error is **bounded**
+* Error is **configurable**
+* Error is **relative**, not absolute
+
+Example:
+
+* Real p99 = 48.32 ms
+* HDR p99 = 48.5 ms
+* Error ≈ 0.4%
+
+This error is:
+
+* Much smaller than OS jitter
+* Much smaller than GC noise
+* Much smaller than scheduler variance
+
+---
+
+#### 9. Why HDR reduced OS jitter in practice
+
+Switching from array+sort to HDR reduced jitter because:
+
+* ❌ No allocation on snapshot
+* ❌ No `Arrays.sort()` CPU bursts
+* ❌ No large memory copies
+* ❌ No cache eviction storms
+* ❌ Fewer safepoints
+
+HDR provides:
+
+* Constant CPU cost
+* Stable memory footprint
+* Scheduler-friendly behavior
+* Cache-friendly access pattern
+
+> Instrumentation became **non-invasive**.
+
+---
+
+#### 10. Interval histograms vs cumulative data
+
+Using **interval histograms** means:
+
+* Metrics reflect **recent behavior**
+* Snapshot cost stays bounded forever
+* No “history bloat”
+* No degradation over time
+
+Your log means:
+
+* p95 / p99 = **last interval**
+* Not entire run
+* Not misleading once understood
+
+---
+
+#### 11. One-sentence mental model (keep this)
+
+> HDRHistogram maps values into logarithmic buckets at record-time, stores only frequency counts, and derives percentiles via prefix sums with bounded error — trading precision for stability and low jitter.
+
+---
+
+#### 12. Why this matters for low-latency systems
+
+In low-latency systems:
+
+* Measurement **is part of the system**
+* Measurement jitter **becomes tail latency**
+* Stable approximation beats exact but disruptive measurement
+
+That’s why:
+
+* Disruptor users use HDR
+* Aeron uses HDR
+* Trading systems use HDR
+
+---
+
+#### Final takeaway
+
+You didn’t just “optimize logging”.
+
+You **changed the physics** of your system:
+
+* from bursty, allocation-heavy observation
+* to constant-time, cache-friendly observation
+
+That is *real* low-latency engineering.
+
+If you want next, we can:
+
+* formalize **error bounds** for your HDR config
+* design **production-grade latency telemetry**
+* or compare HDR vs DDSketch / t-digest
+
+But this summary is already something most engineers never reach.
+
+---
 ### Disruptor Paddings 番外篇
 - **How is padding done to protect hot area from false sharing**
   - Disruptor padding is designed to reduce false sharing, which happens when:
