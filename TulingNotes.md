@@ -99,6 +99,14 @@
   - [深入理解AQS之独占锁ReentrantLock源码分析](#深入理解aqs之独占锁reentrantlock源码分析)
   - [Semaphore, CountDownLatch and Cyclic Barrier 源码分析](#semaphore-countdownlatch-and-cyclic-barrier-源码分析)
   - [并发容器（Map、List、Set）实战及其原理分析](#并发容器maplistset实战及其原理分析)
+    - [ConcurrentHashmap  DeepDive](#concurrenthashmap--deepdive)
+      - [1. What `sizeCtl` means](#1-what-sizectl-means)
+      - [2. `initTable`](#2-inittable)
+      - [3. `helpTransfer`](#3-helptransfer)
+      - [4. `putVal`](#4-putval)
+      - [5. `transfer`](#5-transfer)
+    - [Takeaway while reading ConcurrentHashMap source code.](#takeaway-while-reading-concurrenthashmap-source-code)
+      - [What `@IntrinsicCandidate` really means?](#what-intrinsiccandidate-really-means)
   - [阻塞队列BLOCKINGQUEUE实战及原理分析](#阻塞队列blockingqueue实战及原理分析)
   - [线程池实战及原理分析](#线程池实战及原理分析)
   - [ForkJoinPool实战及原理分析](#forkjoinpool实战及原理分析)
@@ -3857,6 +3865,190 @@ But this summary is already something most engineers never reach.
     - ConcurrentSkipListMap. more performant when it comes to LRLW(lot of read lots of write)
   - **How to keep a black list of users**
     - LRFW (lots of read few writes) , CopyOnWriteArrayList
+
+---
+### ConcurrentHashmap  DeepDive
+
+#### 1. What `sizeCtl` means
+  - `-1`  : table initializing
+  - `<-1` : resize in progress
+  - `>=0` : **resize threshold**
+  
+#### 2. `initTable`
+  
+  Initializing table and setting the resize threshold by updating `sizeCtl`.
+  ```java
+        /**
+     * Initializes table, using the size recorded in sizeCtl.
+     */
+    private final Node<K,V>[] initTable() {
+        Node<K,V>[] tab; int sc;
+        while ((tab = table) == null || tab.length == 0) {
+            if ((sc = sizeCtl) < 0)
+                Thread.yield(); // lost initialization race; just spin; Still possible to cause 100% CPU because the same thread MIGHT get back the core every time and just do NOTHING here.
+            else if (U.compareAndSetInt(this, SIZECTL, sc, -1)) { 
+                try {
+                    if ((tab = table) == null || tab.length == 0) {
+                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
+                        @SuppressWarnings("unchecked")
+                        Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
+                        table = tab = nt;
+                        sc = n - (n >>> 2); // very smartly set the resize threshold here, n - 1/4 * n = 0.75n, same as HashMap
+                    }
+                } finally {
+                    sizeCtl = sc;
+                }
+                break;
+            }
+        }
+        return tab;
+    }
+  ```
+
+#### 3. `helpTransfer`
+```java
+  /**
+   * Helps transfer if a resize is in progress.
+  */
+  final Node<K,V>[] helpTransfer(Node<K,V>[] tab, Node<K,V> f) {
+      Node<K,V>[] nextTab; int sc;
+      if (tab != null && (f instanceof ForwardingNode) &&
+          (nextTab = ((ForwardingNode<K,V>)f).nextTable) != null) {
+          int rs = resizeStamp(tab.length) << RESIZE_STAMP_SHIFT;
+          while (nextTab == nextTable && table == tab &&
+                (sc = sizeCtl) < 0) {
+              if (sc == rs + MAX_RESIZERS || sc == rs + 1 ||
+                  transferIndex <= 0)
+                  break;
+              if (U.compareAndSetInt(this, SIZECTL, sc, sc + 1)) {
+                  transfer(tab, nextTab);
+                  break;
+              }
+          }
+          return nextTab;
+      }
+      return table;
+  }
+```
+**Purpose:** if we encounter a `ForwardingNode`, it means this bin has been moved and a resize is in progress.  
+This method tries to **join the ongoing transfer** (help resize) and returns the `nextTable`.
+
+**Key idea: `sizeCtl` encodes resize state**
+  - `sizeCtl >= 0`: normal mode (threshold / init size)
+  - `sizeCtl < 0`: resizing
+  - high 16 bits = `resizeStamp(n)` (identity of this resize)
+  - low bits = helper count/state
+
+`resizeStamp(n) = numberOfLeadingZeros(n) | (1 << (RESIZE_STAMP_BITS - 1))`
+- `n` is always a power-of-two table length
+- the OR sets the top bit of the 16-bit stamp
+- shifting it into the high bits makes the sign bit 1 → negative → "resize in progress"
+
+`rs = resizeStamp(tab.length) << RESIZE_STAMP_SHIFT`
+
+**Join protocol**
+Loop while resize is still the same one:
+- `nextTab == nextTable && table == tab && (sc = sizeCtl) < 0`
+
+Stop helping if:
+- reached max helpers: `sc == rs + MAX_RESIZERS`
+- almost done / only one helper state: `sc == rs + 1`
+- no work left: `transferIndex <= 0`
+
+Otherwise CAS `sizeCtl` to `sc + 1` to register as a helper, then call `transfer(tab, nextTab)`.
+
+#### 4. `putVal`
+
+putval contains the previous two method and
+
+**Insertion logic**
+- Synchronize lock on the bin (could be a `Node` or `TreeBin`)
+- if Node, insertion at the tail via O(N) (max O(8)) traversal
+- if TreeBin, search for pos, and insert into the Red-Black Tree;
+  - Note there is a `assert checkInvariants(r)` step
+  - Since it is behind assert, it only runs when there is a 'ea' program argument
+
+**Resize logic**
+
+- `addCount`
+  - Used the philosophy of LongAdder
+  - `fullAddCount`, initialize `CounterCell`
+  - `sumCount()` from all stripe: `BASECOUNT + CELLVALUES`
+  - if the new size, `s >= (long)(sc = sizeCtl)` is larger than the current resizing threshold (`sizeCtl`) , start transferring; if another thread already started, help by transfer ablock.
+
+#### 5. `transfer`
+
+- `Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n << 1];`, notice the type-erasure here, `Node<K, V>` at runtime is not permitted.
+- `transferIndex`, and `stride` controls which block you can transfer.
+- Very samrtly, just like HashMap, no rehashing is needed when transfer
+  - during transfer, size * 2
+  - So all Node from the old table; they either move to `ln` or `hn`
+  
+  - `ln` is the old index, and `hn == runbit | ln`
+  
+  - new index will only differ with old index by `int runBit = fh & n;`
+    - imagine if hashkey == 5, and old capacity is 16
+    - 21 and 5 will fall into the same index on the table
+    - current index is `5 & (16 - 1) == 5`
+    - new index is `5 & (32 - 1) == 5`
+    - current index of 21 is `21 & (16 - 1) == 5`
+    - new index of 21 is `21 & (32 - 1) == 21`
+    - in new table, the diff in index between 21 and 5 is 16, which is actually `21 & 16 == 10101 & 10000 == 10000 == 16` which is the runbit, which so happen to be the size of old table; so if runbit is 1 meaning the key is 21, so 21 goes to hn; else key is 5, stay at ln 
+  
+  - the group that contains `lastRun`, its order **DID NOT** change; The other group, its order is **REVERSED** 
+    - Because when we recreate the link, we insert in front
+- When transferring `TreeBin` same logic is applied (`TreeNode` has `next` too)
+  - BUT, if the `ln` or `hn` has reduced number, falling below `UNTREEIFY_THRESHOLD`, then it will be converted back to `LinkedList`
+  
+### Takeaway while reading ConcurrentHashMap source code.
+
+####  What `@IntrinsicCandidate` really means?
+
+This Java method body is a specification fallback.    
+HotSpot may replace this call with a VM intrinsic that has different (usually weaker/faster) memory semantics but the same observable correctness guarantees.**
+
+- Java body = correctness floor
+- Intrinsic = performance ceiling
+
+- Why this is necessary
+  - run in interpreter
+  - run on multiple CPUs
+  - support debug / non-HotSpot VMs
+  - preserve correctness under all modes
+
+   **So** the JDK authors:
+  - write a conservative Java implementation
+  - let HotSpot substitute the real behavior when possible
+  - This is intentional and documented, not a hack.
+
+- How to read intrinsic methods safely
+  when you see
+  ```java
+    @IntrinsicCandidate
+    public final Object getReferenceAcquire(...) {
+        return getReferenceVolatile(...);
+    }
+  ```
+  Read it as
+  ```
+    “Semantics = acquire load
+     Fallback = volatile load
+     Intrinsic = architecture-specific acquire load”
+  ```
+
+- Example
+
+| Method                       | Java body             | Actual intent         |
+| ---------------------------- | --------------------- | --------------------- |
+| `Unsafe.getReferenceAcquire` | delegates to volatile | acquire load          |
+| `Unsafe.putReferenceRelease` | delegates to volatile | release store         |
+| `Thread.onSpinWait`          | empty                 | CPU pause instruction |
+| `Math.sqrt`                  | native                | hardware instruction  |
+
+
+**Rule of thumb**: trust the method name + Javadoc + call site suage not the java body
+
+---
 
 ## 阻塞队列BLOCKINGQUEUE实战及原理分析
 - Implements `BlockingQueue Interface`, `put(e)` blocks when full, `take()` blocks when empty
