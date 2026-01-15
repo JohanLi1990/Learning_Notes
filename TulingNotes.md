@@ -183,6 +183,8 @@
       - [Why metadata is not on the heap](#why-metadata-is-not-on-the-heap)
       - [ClassLaoding Summary](#classlaoding-summary)
     - [What does parent delegation model ensure](#what-does-parent-delegation-model-ensure)
+- [React](#react)
+  - [React Crash Course - Day 1](#react-crash-course---day-1)
 
 
 # 性能优化-JVM-MYSQL
@@ -6156,3 +6158,106 @@ A design choice, not a technical requirements
 > Parent delegation is not strictly necessary, but it enforces security, type consistency, and trust boundaries.
 It prevents core classes from being overridden, ensures a single definition of fundamental types, and allows the JVM to safely compose code from different class loaders.
 Advanced systems may intentionally break delegation, but only with great care.
+
+# React
+
+## React Crash Course - Day 1
+
+- 1️⃣ Modern Frontend Mental Model
+  - Frontend ≠ Backend
+  - Frontend code runs:
+    - in the browser
+    - over the network
+    - with security restrictions (CORS)
+  - Therefore it needs:
+    - a **dev server**
+    - a **bundler**
+  - fast feedback loops (**HMR**)
+- 2️⃣ What Vite Actually Does
+  - **Dev Server**
+    - serves ES modules over HTTP
+    - transforms TS / JSX on the fly
+  - **HMR(Hot module Replacement)**
+    - updates changed modules only
+    - avoids full page reload
+  - **Production bundling**
+    - outputs static assets(`dist/`)
+    - optimized for browser delivery
+  - 👉 Browser cannot run TS / JSX directly.
+- 3️⃣ React Rendering Model
+  - Core rule: React re-renders UI from **state**, not from manual DOM updates
+  - `setState -> re-render`
+  - Component function runs again
+  - JSX describe what UI should look like
+- 4️⃣ State & Controlled Inputs
+  
+  **Controlled Input Pattern**
+  ```jsx
+    const [value, setValue] = useState("");
+
+    <input value={value} onChange={e => setValue(e.target.value)} />
+  ```
+  - React is the **single source of truth**
+  - Input value always reflects state
+  - Enables validation, formatting, disabling, etc.
+- 5️⃣ Derived State:
+  - Derived state = computed from other state.
+  - `const remaining = todos.filter(t => !t.done).length;`
+  - Rules:
+    - Do not store it
+    - Compute it from existing state
+- 6️⃣ `useEffect` - **Side Effects**
+  - `useEffect` is for:
+    - DOM effects (`document.title`)
+    - data fencing
+    - timers / subscriptions
+    - syncing external systems
+  - Key properties:
+    - runs after render
+    - re-runs when dependencies change
+    - NOT a constructor
+    - NOT backend “initialization”
+- 7️⃣ useMemo — Cache, Not Optimizatio
+  - What useMemo actually does
+    - Caches a computed value
+    - Returns cached value only if dependencies are === equal
+  - Important Insight
+    - useMemo can be more expensive than recomputing.
+    - Why:
+      - dependency comparison cost
+      - cache bookkeeping
+      - often recomputes anyway if deps change frequently
+  - Rule of Thumb
+    - Use useMemo only if:
+      - computation is expensive
+      - dependencies change rarely
+      - referential stability matters
+    - Otherwise: recompute.
+- 8️⃣ Fake Backend Call Pattern
+
+  **Frontend async pattern:**
+  ```jsx
+    setLoading(true);
+    try {
+      const data = await fetchStuff();
+      setState(data);
+    } finally {
+      setLoading(false);
+    }
+  ```
+  Key idea:
+  - Async logic lives in event handlers or effects
+  - Loading & error are explicit UI states
+
+- 9️⃣ CORS (Browser Security)
+  - Different origin = protocol + host + port
+  - Browser blocks cross-origin reads by default
+  - Server must explicitly allow via CORS headers
+  
+  This is enforced by the browser, not the server.
+
+- 🔑 Day 1 Core Takeaways
+  - React is a **state** -> **render** -> **effect** machine
+  - Dev servers exist because browsers can't compile modern frontend code
+  - Hooks are **not magic** -- the are discplined APIs around render cycles
+  - `useMemo` is a cache invalidation tool, not a performance gurantee. 
