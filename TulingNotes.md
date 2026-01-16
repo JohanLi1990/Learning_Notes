@@ -33,6 +33,9 @@
     - [一线大厂高并发缓存架构](#一线大厂高并发缓存架构)
     - [Redis缓存设计与性能优化](#redis缓存设计与性能优化)
     - [京东热点缓存探测系统JDhotkey架构剖析](#京东热点缓存探测系统jdhotkey架构剖析)
+  - [RabbitMQ](#rabbitmq)
+    - [Key Components](#key-components)
+    - [Practical](#practical)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -950,6 +953,70 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   - Client will be referenced by actual server
   - Worker ip information are managed by etcd cluster (cloud native, Kubernates Services)
 
+
+## RabbitMQ
+### Key Components
+![Rabbit MQ diagra](./exchanges-topic-fanout-direct.png)
+- Queue
+  - a **buffer** that stores messages
+  - Owned by RabbitMQ
+  - Consumed by one or more consumers
+- Exchange (**Routing Brain**)
+  - Receives messages from producers
+  - Decides which queue(s) get the message
+  - Never stores messages
+- Connection (TCP session to the broker)
+  - A long-lived TCP connection
+  - Between client and RabbitMQ broker
+  - Authenticates, negotiates protocol, heartbeats
+  - Properties:
+    - Expensive
+    - Thread-safe
+    - Should be shared
+    - One per app instance (usually)
+- Chanel (**Virtual connection, hot path**)
+  - A lightweight virtual connection
+  - Multiplexed over a single TCP connection
+  - Where all real work happens
+
+  - What happens on a Channel
+    - publish
+    - consume
+    - ack
+    - declare queues/exchanges
+  - Why Channels exist
+    - TCP connections are expensive
+    - AMQP multiplexes many channels over one socket
+    - Critical rules (very important)
+    - ❌ Channels are NOT thread-safe
+    - ✔️ One channel per thread / logical flow
+    - ✔️ Cheap to create
+
+- 🧠 Low-Latency / Backend Perspective (Your world)
+  - Connection ≈ Netty EventLoopGroup
+  - Channel ≈ logical pipeline / session
+  - Exchange ≈ routing table
+  - Queue ≈ bounded buffer + consumer backpressure
+  - RabbitMQ optimizes:
+    - Routing correctness
+    - Reliability
+    - Delivery guarantees
+    - **not** raw p99 latency
+
+### Practical
+**TODO**
+
+- Consumer 
+  - **push** `channel.basicConsume(String queue, boolean autoAck, Consumer callback);`
+  - **pull** `channel.basicGet(QUEUE_NAME, boolean autoAck);`
+- Message Listening, and Callback
+  ```java
+    String basicConsume(String queue, DeliverCallback deliverCallback, CancelCallback cancelCallback, ConsumerShutdownSignalCallback shutdownSignalCallback) throws IOException;
+  ```
+- [Rabbit MQ Tutorials](https://www.rabbitmq.com/tutorials)
+  ![Rabbit MQ Model](./6_rabbit_mq_models.png)
+
+- Headers Routing
 
 ## Kafka
 ### Kafka 上手
