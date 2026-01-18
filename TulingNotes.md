@@ -188,6 +188,24 @@
     - [What does parent delegation model ensure](#what-does-parent-delegation-model-ensure)
 - [React](#react)
   - [React Crash Course - Day 1](#react-crash-course---day-1)
+  - [React Crash Course - Day 2](#react-crash-course---day-2)
+    - [React 18 StrictMode (Dev)](#react-18-strictmode-dev)
+    - [useState](#usestate)
+    - [useEffect(\[\])](#useeffect)
+    - [useEffect cleanup](#useeffect-cleanup)
+    - [installHook.js](#installhookjs)
+    - [Summary](#summary-1)
+  - [React Crash Course - Day 3 RTK Query, Async Data, and Server State](#react-crash-course---day-3-rtk-query-async-data-and-server-state)
+    - [1. the Big mental shift](#1-the-big-mental-shift)
+    - [2. Server State vs UI State (critical distinction)](#2-server-state-vs-ui-state-critical-distinction)
+    - [3. What `useGetTodosQuery()` really is](#3-what-usegettodosquery-really-is)
+    - [4. Where the HTTP request actually happens](#4-where-the-http-request-actually-happens)
+    - [5. How to navigate to source code in `node_modules`](#5-how-to-navigate-to-source-code-in-node_modules)
+    - [6. Cache, Tags, and invalidatesTags](#6-cache-tags-and-invalidatestags)
+    - [8. onQueryStarted — the missing piece](#8-onquerystarted--the-missing-piece)
+    - [9. Optimistic Update Pattern (core pattern)](#9-optimistic-update-pattern-core-pattern)
+    - [Summary](#summary-2)
+  - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
 # 性能优化-JVM-MYSQL
@@ -6328,3 +6346,265 @@ Advanced systems may intentionally break delegation, but only with great care.
   - Dev servers exist because browsers can't compile modern frontend code
   - Hooks are **not magic** -- the are discplined APIs around render cycles
   - `useMemo` is a cache invalidation tool, not a performance gurantee. 
+
+## React Crash Course - Day 2
+
+### React 18 StrictMode (Dev)
+
+- React intentionally mounts components twice in dev
+- Sequence: mount → unmount → mount
+- Purpose: detect unsafe side effects
+- Happens ONLY in development
+- Production runs mount once
+
+### useState
+- Holds component-local state
+- setState triggers re-render
+- Never mutate directly
+
+### useEffect([])
+
+- NOT guaranteed to run once in dev
+- MUST be idempotent
+- Cleanup must fully undo side effects
+
+### useEffect cleanup
+ 
+- useEffect may run multiple times
+- Returned function by useEffect is the cleanup
+  ```js
+    useEffect(() => {
+      window.addEventListener("resize", handler);
+      return () => window.removeEventListener("resize", handler);
+    }, []);
+  ```
+- Cleanup runs:
+  - on unmount
+  - before effect re-runs
+  - in React 18 StrictMode (dev)
+- Always clean:
+  - event listeners
+  - timers
+  - subscriptions
+  - observers
+
+### installHook.js
+
+- Injected by React DevTools
+- Used for inspection & profiling
+- Not part of app code
+
+### Summary
+
+- ✅ Triggers: What triggers Re-render
+  - `setState`
+  - parent re-render
+  - props change
+  - context change
+- ❌ Does NOT trigger:
+  - local variable mutation
+  - `useRef.current` change
+  - `console.log`
+- `useState` what it really does
+  - `useState` is how `React` remembers values aross reners
+  - calling `setState` schedules a re-render
+  - State updates are **batched & async**
+  - State mustg be treated as **immutable**
+
+## React Crash Course - Day 3 RTK Query, Async Data, and Server State
+
+### 1. the Big mental shift
+**old mindset**: (local state / thunks/ fake fetch)
+> "I call an API, wait for it, then put the result into state."
+
+**New mindset**: (RTK query)
+> My component declares a dependency on server data.
+Fetching, caching refetching and lifecycle are handled by RTK Query.
+
+### 2. Server State vs UI State (critical distinction)
+
+- Server State (RTK Query owns this)
+  - Data that comes from the backend
+  - Can be refetched at any time
+  - Shared across components
+  - Cached globally
+
+  Examples
+  - `todos`
+  - `users`
+  - `orders`
+
+  Managed by RTK Query
+
+- UI / Client State (React/slices own this)
+  - Input fields
+  - Modal open/close
+  - Filters, tabs
+  - Temp UI-only values
+  
+  Examples:
+  - `text` input
+  - `selectedTab`
+  - `isDialogOpen`
+  
+  Managed by `useState` or **Redux slices**
+
+### 3. What `useGetTodosQuery()` really is
+
+```js
+const { data, isLoading, error } = useGetTodosQuery();
+
+```
+This is **not**:
+- a function that “calls fetch”
+- an async function
+- a blocking operation
+
+This is:
+- a subscription to cached server data
+- a declarative statement: “This component depends on getTodos.”
+
+RTK Query:
+- checks cache
+- decides whether to fetch
+- updates Redux state
+- triggers re-renders
+
+### 4. Where the HTTP request actually happens
+
+Important realization:
+- The hook does NOT send HTTP requests.
+
+The request is sent by:
+- RTK Query middleware
+- via fetchBaseQuery
+- using the browser fetch()
+
+Execution path (simplified):
+```
+useGetTodosQuery()
+ → dispatch(initiate)
+ → RTK Query middleware
+ → baseQuery
+ → fetch()
+
+```
+
+### 5. How to navigate to source code in `node_modules`
+
+- Navigate to the expression
+- do `ctrl` + `shift` + `p` -> **TypeScript: Go To Source Definition**
+
+Types describe what is allowed.
+Source code shows what actually happens.
+
+
+### 6. Cache, Tags, and invalidatesTags
+
+What providesTags does
+```
+providesTags: ["Todos"]
+
+```
+It labels cached query results:
+```
+getTodos → tagged as "Todos"
+
+```
+
+**What `invalidatesTags` does**
+```
+invalidatesTags: ["Todos"]
+
+```
+After a mutation succeeds:
+- Mark all "Todos" cache entries as stale
+- If there are active subscribers → refetch
+- Important:
+  ❌ It does NOT update cache
+  ❌ It does NOT merge data
+  ❌ It does NOT add/remove items
+
+It only says:
+**“This data might be outdated — refetch it.”**
+
+### 8. onQueryStarted — the missing piece
+
+What it is
+- onQueryStarted is a lifecycle hook that runs:
+- immediately when a mutation starts
+- before the HTTP request finishes
+
+It gives you access to:
+- dispatch
+- queryFulfilled (a Promise)
+- the mutation arguments
+
+What it enables
+- ✅ Optimistic UI
+- ✅ Direct cache updates
+- ✅ Rollback on failure
+
+This is where you can say:
+
+“I know how to update the cache right now.”
+
+### 9. Optimistic Update Pattern (core pattern)
+
+Used for add, toggle, delete.
+
+General structure:
+
+```js
+async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+  const patch = dispatch(
+    api.util.updateQueryData("getTodos", undefined, (draft) => {
+      // optimistic change
+    })
+  );
+
+  try {
+    await queryFulfilled;
+  } catch {
+    patch.undo(); // rollback
+  }
+}
+
+```
+Backend analogy:
+
+`Modify in-memory cache → async DB write → rollback on exception`
+
+### Summary
+
+**RTK Query cache is Redux state**
+Hooks are just subscriptions
+Middleware performs the side effects
+
+## React, Javascripts Fundamentals
+- `const` is like final for Java, but it is **not static**
+
+- A React function is component is **just** a fucntion
+  
+  An App
+  ```js
+  function App() {
+    const remaining = todos.filter(t => !t.done).length;
+    return <div>{remaining}</div>;
+  }
+
+  ```
+
+  **On every re-render**, React does 
+  ```js
+    App();
+  ```
+
+  and `remaining` gets re-calculated
+
+  **React throws away everything and re-runs the function**
+
+
+
+
+
