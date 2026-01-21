@@ -36,6 +36,8 @@
   - [RabbitMQ](#rabbitmq)
     - [Key Components](#key-components)
     - [Practical](#practical)
+    - [Baic Application](#baic-application)
+    - [Advanced features](#advanced-features)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -205,6 +207,18 @@
     - [8. onQueryStarted — the missing piece](#8-onquerystarted--the-missing-piece)
     - [9. Optimistic Update Pattern (core pattern)](#9-optimistic-update-pattern-core-pattern)
     - [Summary](#summary-2)
+  - [Day 3.5: Redux + RTK Query - Key takeaways (Day 3 Final)](#day-35-redux--rtk-query---key-takeaways-day-3-final)
+    - [1️⃣ What the Redux Store Really Is](#1️⃣-what-the-redux-store-really-is)
+    - [2️⃣ Two Kinds of State (this is the BIG idea)](#2️⃣-two-kinds-of-state-this-is-the-big-idea)
+      - [A) UI / Client State (your responsibility)](#a-ui--client-state-your-responsibility)
+      - [B) Server / Remote State (RTK Query’s responsibility)](#b-server--remote-state-rtk-querys-responsibility)
+    - [3️⃣ Why RTK Query Has a Reducer (important insight)](#3️⃣-why-rtk-query-has-a-reducer-important-insight)
+    - [4️⃣ What `configureStore` Is Wiring Together](#4️⃣-what-configurestore-is-wiring-together)
+    - [5️⃣ Why `[todoApi.reducerPath]` Looks Weird](#5️⃣-why-todoapireducerpath-looks-weird)
+    - [6️⃣ Typed Hooks = Less TypeScript Pain](#6️⃣-typed-hooks--less-typescript-pain)
+    - [7️⃣ Why UI State Moved Out of `App.tsx`](#7️⃣-why-ui-state-moved-out-of-apptsx)
+    - [8️⃣ Correct Mental Model Going Forward](#8️⃣-correct-mental-model-going-forward)
+    - [9️⃣ Rule of Thumb (write this down)](#9️⃣-rule-of-thumb-write-this-down)
   - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
@@ -1035,6 +1049,42 @@ This lesson is very hardcore, there are alot of useful informa-XX:+EliminateLock
   ![Rabbit MQ Model](./6_rabbit_mq_models.png)
 
 - Headers Routing
+
+### Baic Application
+- Work Queues
+- Pub/Sub
+- Routing
+- Topics
+- Publisher Confirms
+- Headers routing
+
+Spring boot rabbitMQ integration
+```
+<dependency>
+<groupId>org.springframework.boot</groupId>
+<artifactId>spring-boot-starter-amqp</artifactId>
+</dependency>
+```
+
+### Advanced features
+
+- Classic: used for small amount of data, and the producer and consumer have similar work rate.
+- Quorum: Based on raft, 
+  - Persistence, 
+  - FIFO
+  - Posion message handling
+- Stream
+  - support large fanout
+  - Replay /Time-traveling
+  - Throughput performance
+  - Large logs
+- Dead Letter Queue
+  - When a message gets rejected by consumer, `channel.basicReject` or `channel.basicNack`
+  - TTL reached but message not consumed
+  - normal message queue full capacity
+  - We can use DLQ + TTL to do delayed messaging in RabbitMQ
+- Sharding:
+  - applies to use case where sequential consumption is not required. 
 
 ## Kafka
 ### Kafka 上手
@@ -6580,6 +6630,232 @@ Backend analogy:
 **RTK Query cache is Redux state**
 Hooks are just subscriptions
 Middleware performs the side effects
+
+
+## Day 3.5: Redux + RTK Query - Key takeaways (Day 3 Final)
+
+### 1️⃣ What the Redux Store Really Is
+
+The **Redux store** is:
+
+* A **single global state container**
+* Plus the **logic that updates it**
+* Plus **middleware** that handles async work
+
+It wires together:
+
+* UI state (your own slices)
+* Server state (RTK Query)
+* Async side effects (API calls)
+
+> Think: **store = state + reducers + middleware**
+
+---
+
+### 2️⃣ Two Kinds of State (this is the BIG idea)
+
+#### A) UI / Client State (your responsibility)
+
+Stored in **Redux slices** (`createSlice`):
+
+* Filters
+* Toggles
+* Selected rows
+* Editing state
+* Dialog open/close
+* View modes
+
+Example (`uiSlice`):
+
+```ts
+state.ui = {
+  showCompleted: boolean,
+  filterText: string,
+  editingTodoId: string | null
+}
+```
+
+Owned by:
+
+* `uiSlice.ts`
+* Updated via `dispatch(...)`
+
+---
+
+#### B) Server / Remote State (RTK Query’s responsibility)
+
+Stored automatically by **RTK Query**:
+
+* Fetched data
+* Loading flags
+* Error states
+* Cache metadata
+
+Example:
+
+```ts
+state.todoApi = {
+  queries: {...},
+  mutations: {...},
+  subscriptions: {...}
+}
+```
+
+Owned by:
+
+* `todoApi.ts`
+* Managed for you
+
+> ❗ You do NOT create reducers for server data manually unless you have a special reason.
+
+---
+
+### 3️⃣ Why RTK Query Has a Reducer (important insight)
+
+RTK Query:
+
+* Is NOT just a “fetch wrapper”
+* It is a **server-state manager**
+
+It needs a reducer because it stores:
+
+* Cached API responses
+* Which queries are active
+* Loading/error status
+* Cache invalidation info
+
+That’s why this exists:
+
+```ts
+[todoApi.reducerPath]: todoApi.reducer
+```
+
+Which becomes:
+
+```ts
+state.todoApi
+```
+
+---
+
+### 4️⃣ What `configureStore` Is Wiring Together
+
+```ts
+configureStore({
+  reducer: {
+    ui: uiReducer,
+    todoApi: todoApi.reducer,
+  },
+  middleware: getDefaultMiddleware => 
+    getDefaultMiddleware().concat(todoApi.middleware)
+})
+```
+
+This wires:
+
+* UI state updates
+* Server cache updates
+* API calls & side effects
+* Redux DevTools
+* Type inference
+
+---
+
+### 5️⃣ Why `[todoApi.reducerPath]` Looks Weird
+
+This is **computed property syntax** in JS.
+
+```ts
+[todoApi.reducerPath]: todoApi.reducer
+```
+
+Means:
+
+```ts
+"todoApi": todoApi.reducer
+```
+
+RTK Query does this so:
+
+* You don’t typo the key
+* Multiple APIs can coexist safely
+
+---
+
+### 6️⃣ Typed Hooks = Less TypeScript Pain
+
+Instead of:
+
+```ts
+useDispatch()
+useSelector(...)
+```
+
+We create:
+
+```ts
+useAppDispatch()
+useAppSelector()
+```
+
+So:
+
+* `dispatch` knows valid actions
+* `state` knows full shape (`RootState`)
+* No `any`
+* Cleaner components
+
+---
+
+### 7️⃣ Why UI State Moved Out of `App.tsx`
+
+We moved **filter + showCompleted** into Redux because:
+
+* They are **app-level UI state**
+* Multiple components may need them later
+* They should persist across re-renders
+* They should not depend on server calls
+
+What stayed local:
+
+* “Add todo” input text (`useState`)
+
+  * temporary
+  * component-scoped
+  * not shared
+
+---
+
+### 8️⃣ Correct Mental Model Going Forward
+
+```
+┌──────────────┐
+│   React UI   │
+└──────┬───────┘
+       │
+useSelector / useDispatch
+       │
+┌──────▼────────────────┐
+│     Redux Store        │
+│                        │
+│  uiSlice               │ ← UI state
+│  todoApi (RTK Query)   │ ← Server cache
+│                        │
+│  middleware             │ ← API calls
+└────────────────────────┘
+```
+
+---
+
+### 9️⃣ Rule of Thumb (write this down)
+
+* **Server data?** → RTK Query
+* **UI behavior?** → Redux slice
+* **Temporary input?** → `useState`
+* **Async logic?** → RTK Query middleware
+
+---
+
 
 ## React, Javascripts Fundamentals
 - `const` is like final for Java, but it is **not static**
