@@ -220,6 +220,9 @@
     - [7️⃣ Why UI State Moved Out of `App.tsx`](#7️⃣-why-ui-state-moved-out-of-apptsx)
     - [8️⃣ Correct Mental Model Going Forward](#8️⃣-correct-mental-model-going-forward)
     - [9️⃣ Rule of Thumb (write this down)](#9️⃣-rule-of-thumb-write-this-down)
+  - [React JS/TS phase 2](#react-jsts-phase-2)
+    - [Session 1 - “JS runtime mental model” for React devs](#session-1---js-runtime-mental-model-for-react-devs)
+    - [Session 2 - Closures + “why React doesn’t update closure”](#session-2---closures--why-react-doesnt-update-closure)
   - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
@@ -6877,7 +6880,100 @@ useSelector / useDispatch
 
 ---
 
+## React JS/TS phase 2
 
+### Session 1 - “JS runtime mental model” for React devs
+
+- React decides whether something "changed mostly by reference identity(same object/function reference vs a new one)
+- `{...obj}` / `[...arr]`  only clones 1 level; nested objects are still shared references.
+- "Immutable updates" means create new objects / arrays instead of mutating existing ones. 
+- In React, “changed” almost always means “new reference”, not “different value”.
+
+### Session 2 - Closures + “why React doesn’t update closure”
+
+- Close captures the variable from the execution context where the function was created,
+- Why “stale closure” happens:
+  ```js
+    useEffect(() => {
+      console.log(count);
+    }, []);
+  ```
+  - Effect runs once
+  - Closure captures count from first render
+  - Never recreated → always logs initial value
+
+- Three solutions:
+  - Dependency array (declarative)
+    ```js
+      useEffect(() => {
+        console.log(count);
+      }, [count]);
+    ```
+  - Functional updater (preferred for state changes)
+    ```js
+      setCount(c => c + 1);
+    ```
+
+  - `useRef` (imperative escape hatch)
+
+    | Aspect           | `useState`          | `useRef`                  |
+    | ---------------- | ------------------- | ------------------------- |
+    | Causes re-render | ✅ Yes               | ❌ No                      |
+    | Immutable        | ✅ Yes               | ❌ No                      |
+    | Lifetime         | Per render snapshot | Component lifetime        |
+    | Purpose          | UI / declarative    | Imperative / escape hatch |
+
+
+- `useRef` is a stable object whose `.current` can mutate without causing a re-render. 
+  - Java analogy:
+    ```java
+      class MyComponent {
+        static AtomicInteger ref = new AtomicInteger();
+
+    ```
+  - it is render escap hatch
+    ```js
+      useEffect(() => {
+        setInterval(() => {
+          console.log(countRef.current); // setInterval will always read latest value from countRef
+        }, 1000);
+      }, []);
+    ```
+  - if the value affects rendering, should cause UI updates, is part of declarative sate; then ref is the **wrong** tool
+  - it is perfect for:
+    - timers
+    - sockets
+    - event listeners
+    - animation loops
+    - async callbacks
+    - debouncing / throttling
+    - imperative libraries
+  - Use ref is like a handler field in Netty
+      ```java
+        class MyHandler extends ChannelInboundHandlerAdapter {
+
+            private int counter; // field === useRef
+
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                counter++;
+                doSomethingAsync(() -> {
+                    System.out.println(counter); // java will always pass the field, not the stack value
+                });
+            }
+        }
+      ```
+- React state is like method-local variables recreated per event. Refs are like handler fields living for the lifetime of the component.
+
+**Summary**:
+- State is replaced per render
+- Refs are shared across renders
+- Closures freeze values, not refs.
+- if changing a vluae should update the UI -> state
+- if not -> ref
+
+
+---
 ## React, Javascripts Fundamentals
 - `const` is like final for Java, but it is **not static**
 
