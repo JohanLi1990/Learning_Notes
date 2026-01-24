@@ -38,6 +38,7 @@
     - [Practical](#practical)
     - [Baic Application](#baic-application)
     - [Advanced features](#advanced-features)
+    - [Rabbit MQ Clusters](#rabbit-mq-clusters)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -1085,6 +1086,26 @@ Spring boot rabbitMQ integration
   - We can use DLQ + TTL to do delayed messaging in RabbitMQ
 - Sharding:
   - applies to use case where sequential consumption is not required. 
+
+### Rabbit MQ Clusters
+
+- Rabbit MQ monitoring: from web control panel provided by rabbit mq
+  - provide also http api for interfacing with Promethus, Grafana
+  - e.g. `http://{$server.port}/api/overview`
+
+- Rabbit MQ data backup and recovery
+  - Metadata can be downloaded/uploaded via json
+  - For real messages you have to manully backup/recover, i.e. copy paste the vhost folders `/var/lib/rabbitmq/mnesia/rabbit@192-168-65-193/msg_stores/vhosts` (for example)
+
+- Using Fedration plugin for remote message synchronization
+  - Upstream is in Beijing, down stream in Chang Sha
+  ![RabbitMQ](./RabbitMQFederation.png)
+
+- Rabbit MQ High Availability
+  - Normal mode, not very reliable, if one down, then all data on that cluster will not be able to be consumed
+  - Mirror mode, data sync across the nodes in the cluster; but of course this will hurt bandwidth. 
+    - You still need HAProxy, to help client switch to node that is not corrupted within the cluster
+    - You also need keepalived to ensure if the master HAProxy address is down, the slave HAProxy address is up for action
 
 ## Kafka
 ### Kafka 上手
