@@ -39,6 +39,9 @@
     - [Baic Application](#baic-application)
     - [Advanced features](#advanced-features)
     - [Rabbit MQ Clusters](#rabbit-mq-clusters)
+  - [ZooKeeper](#zookeeper)
+    - [Data Structure: Different Nodes](#data-structure-different-nodes)
+    - [Watcher/monitor mechanism](#watchermonitor-mechanism)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -1074,6 +1077,57 @@ Spring boot rabbitMQ integration
   - Mirror mode, data sync across the nodes in the cluster; but of course this will hurt bandwidth. 
     - You still need HAProxy, to help client switch to node that is not corrupted within the cluster
     - You also need keepalived to ensure if the master HAProxy address is down, the slave HAProxy address is up for action
+
+
+## ZooKeeper
+ 
+Zookeepr is used to solve consistency problem within a distributed system. [Zookeeper](https://zookeeper.apache.org)
+Based on Observer/Listener patterns.
+
+### Data Structure: Different Nodes
+
+> Similar to UNIX file system
+
+> Tree based (`DataTree`) structure, every node is a ZNode.
+
+- **Persistent Node**
+  
+  > `create /locks`
+  
+  > never gets deleted
+
+- **Ephemeral Node**
+  
+  > `create -e /locks/DBLock`
+  
+  > node removed when client is closed
+
+- **Sequential Node**
+  
+  > `create -e -s /jobs/job`
+  
+- **Conatiner Node**
+  
+  > `create -c /work`
+
+  > when the last node is removed, the container is removed as well.
+
+- **TTL Node**
+
+  > `create -t 3000 /ttl_node`
+
+- Application 1: Use ephemeral node as distributed lock
+- Application 2: Optimistic lock 
+
+### Watcher/monitor mechanism
+
+watch mechanism
+client registered at server side for event subscriptions
+events are: `None`, `NodeCreated`, `NodeDeleted`, `NodeDataChanged`, `NodeChildrenChanged`, `DataWatchRemoved`, `ChildWatchRemoved`
+
+- Application 1: Co-operated service , master-worker pattern.
+- Application 2: Atomic increment 
+
 
 ## Kafka
 ### Kafka 上手

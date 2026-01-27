@@ -42,6 +42,8 @@
     - [Session 2 - Closures + “why React doesn’t update closure”](#session-2---closures--why-react-doesnt-update-closure)
     - [Session 3 - Arrow functions, `this`, and event handlers](#session-3---arrow-functions-this-and-event-handlers)
     - [Session 4 TypeScript for React (props, callbacks, hooks)](#session-4-typescript-for-react-props-callbacks-hooks)
+    - [Session 5 useMemo, React.memo, and React Performance Myths](#session-5-usememo-reactmemo-and-react-performance-myths)
+    - [Session 6 - Effects](#session-6---effects)
   - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
@@ -1212,6 +1214,263 @@ Memoization is like caching:
   - Types describe intent, not implementation.
   - Stability matters more than allocation.
   - Inference is great—until it isn’t. 
+
+### Session 5 useMemo, React.memo, and React Performance Myths
+
+**Practical**
+```tsx
+function Dashboard({ trades }) {
+  const totals = useMemo(
+    () => calculateTotals(trades),
+    [trades]
+  );
+
+  return (
+    <>
+      <Summary totals={totals} />
+      <TradeList trades={trades} />
+    </>
+  );
+}
+
+```
+
+- **What assumptions must be true for useMemo to be useful here?**
+  - `Summary` is a memoized child
+  - and `calculateTotals` is actually costly
+  - renders happen frequently where trades identity often stays the same (or you’re trying to keep totals reference stable for memoized children)
+
+- **Should Summary be memoized?**
+  - Memoizing Summary only helps if Summary itself is non-trivial and its props are often referentially stable.
+  - calculateTotals being costly is mainly an argument for useMemo, not React.memo(Summary).
+
+- **Would memoizing TradeList help or hurt**
+  - If trades is frequently recreated (new array each time) → React.memo(TradeList) is mostly useless (overhead + complexity).
+  - If trades is stable most of the time (e.g., normalized store, selectors, RTK Query cache, or parent renders for unrelated reasons) → React.memo(TradeList) can help if TradeList is heavy.
+
+- **What happens if trades is recreated but identical**
+  - in this case both `Summary` and `TradeList` will be re-rendered
+  - `const totals` will be re-rendered because dependency array updated;
+  - `Summary` depends on `totals`
+
+- **Insight**
+  - if `trades` is often recreated , your real fix is upstream stability, not more memoizations
+  - Avoid recreating `trades` unless data truly changed (selectors, memoized selectors, stable RTK query results, avoid map/filter inline in parent render)
+  - Or compute `totals` closer to the data source (selector /backend/ query transform), so UI isn't doing heavy work per render. 
+
+**Quizes**
+
+- Q1 useMemo illusion
+  ```tsx
+  function App({ items }) {
+    const count = useMemo(
+      () => items.filter(i => i.active).length,
+      [items]
+    );
+
+    return <div>{count}</div>;
+  }
+
+  ```
+  - It prevents re-running the filter computation, not “recreating” the number (numbers are primitives).
+  - it will save work when re-renders happen very often , but `items` reference stays the same; if `items` are huge, it will also save meaningful time (avoid O(N) scanning)
+  - It depends whether `items` are big or not. Most of the time filtering can be trivial, and we usually just calculates count every render.
+
+- Q2 “But my child is memoized!”
+
+```tsx
+const Child = React.memo(function Child({ value }) {
+  console.log("Child render");
+  return <div>{value}</div>;
+});
+
+function Parent() {
+  const value = useMemo(() => 42, []);
+  return <Child value={value} />;
+}
+
+```
+  - Child only renders once 
+  - not really, if Parent always pass 42 to Child, `React.memo` will also not re-render Child, seeing that 42 is identical to previous value.
+  - Child does not re-render because `const value` is initialized once, and never updated.
+  - **primitives don't need memoization**. `React.memo` already handles them perfectly.
+
+- Q3 Function identity trap
+  - Yes it does,
+  - Because every render, a new `const onClick` is created
+  - we should apply `useCallback` here with empty depenedency array; the click function is not a function that is going to change much. We can also do `useMemo` but return the function instead.
+  - When we need the function to gets updated with every render, not just initialized once.
+
+- Q4 useCallback dependency reality check
+  -  No,
+  -  This code is not correct because `user.id` is included in closure, and never gets updated.
+  -  So the callback should be like this instead: `(id) => {saveUser(id)}`; `id` value should be injected by Child component. This bug happens because the `callback` is wrongly defined to contain a state (`user.id`) which is not static. 
+
+- Q5 Memoization cascade (hard one)
+  - TradeList
+  - Summary
+  - The real architecutre fix is to go up to the parent, make sure `trades` are not automatically recreated if there is no identity changes. So that downstream children can receive stable identity via props.
+
+- Q6 Trick question: what’s actually expensive?
+  A. Re-rendering a React component
+  B. Running useMemo
+  C. Allocating new objects/functions
+  D. Updating the DOM
+
+  D updating Dom
+  - Dom mutation triggers layout, paint, compositing
+  - Can block main thread
+  - Orders of magnitude slower than JS
+  
+  - A(re-render) -> cheap
+  - B(useMemo)  -> small overhead
+  - C(allocations) -> matters in `hot path`, but still cheaper than DOM
+  
+  React render phase is cheap; browser is expensive
+
+  
+- Q7 Code review judgement
+  -  I will challenge him about the `const value`, whether it is worth to `useMemo` for; I will aslo ask him what the time complexity is for `doThing` and question whether we need the `useCallback` or not; I will also question `React.memo`, about whether will the Child gets re-rendered anyway. 
+  -  The smell i am looking for are unnecessary memoziation and comparison overhead brought by memoization.
+  -  I think in this case this P.R is over-using memoizations
+
+### Session 6 - Effects
+
+**Mini-Practical**
+
+```tsx
+export function Profile({userId}) {
+    const [user, setUser] = useState(null);
+    useEffect(() => {
+        fetchUser(userId).then(setUser);
+    }, []);
+}
+```
+Questions:
+
+- **What’s wrong with this effect?**
+
+This effects is only run once during initialization of Profile. Even though the effect relies on `userId`, its dependency array does not contain `userId`.
+Also it did not define a proper type for user. 
+
+- **What bug will appear?**
+
+The `Profile` will re-render when given a new `userId`, but the `user` fetched will still be the very first `user`.
+
+- **What should the dependency array be?**
+
+`[userId]`
+
+- **What happens in StrictMode?**
+
+React is going to run the effect twice, and set the User twice.
+
+
+**Quizes**
+
+- Q1 - The “once on mount” lie
+  ```tsx
+  useEffect(() => {
+    console.log("Hello");
+  }, []);
+
+  ```
+  - 1. Because it has no dependencies, it will run once during creation 
+  - 2. In strict mode, it will run more than once
+  - 3. React is actually double checking whether your effect is idempotent, and safe to run more than once (without memory leaks etc)
+
+- Q2 - Stale closure classic
+
+  ```tsx
+  function Counter() {
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+      setInterval(() => {
+        console.log(count);
+      }, 1000);
+    }, []);
+
+    return <button onClick={() => setCount(c => c + 1)}>+</button>;
+  }
+
+  ```
+
+  - 1. every 1 sec, 0 will be logged, forever.
+  - 2. Becuase closure captures count at creation of `Counter`, which is 0.
+  - 3. add `count` to dependency array; or we can do use `useRef` on count, and do `console.log(countRef.get())` instead.
+  - 4. I prefer adding `count` to dependency array. 
+  I think there is another bug here; `useEffect` in this case should return `clearInterval`; otherwise previous `Interval` will still be running; Not clearing the interval causes leaks and duplicated timers in StrictMode
+
+- Q3 — Missing dependency (subtle) 
+
+  ```ts
+  function Profile({ userId }) {
+    const [user, setUser] = useState(null);
+
+    useEffect(() => {
+      fetchUser(userId).then(setUser);
+    }, []);
+  }
+
+  ```
+  - 1. This effects is only run once during initialization of Profile. Even though the effect relies on `userId`, its dependency array does not contain `userId`.Also it did not define a proper type for user. 
+  - 2. The `Profile` will re-render when given a new `userId`, but the `user` fetched will still be the very first `user`.
+  - 3. It has nothing to do with React, closure is a javascript property. How it behaves is not controlled by react.  
+  - 4. React will run the effect twice, and forces you to experience what non-idempotent effects do.
+
+- Q4 — Effect vs render (very important)
+  
+  ```tsx
+    const [total, setTotal] = useState(0);
+
+    useEffect(() => {
+      setTotal(items.reduce((a, b) => a + b.price, 0));
+    }, [items]);
+
+  ```
+  - 1. not really. 
+  - 2. i think people confuse derivation vs synchronization. Effect is for synchronization.
+  - 3. `total = items.reduce((a, b) => a + b.price, 0)`
+  - 4. derivation vs synchronization. Effect is for something that CANNOT be done during render (like fetching a remote property)
+
+- Q5 — Infinite loop diagnosis
+
+  ```tsx
+    useEffect(() => {
+      setQuery(q => q + "!");
+    }, [query]);
+
+  ```
+  - 1. Because there is no stopping condition, `q` constantly gets updated
+  - 2. If effects updated states, render will be kicked off again; effects and render goes hand in hand. 
+  - 3. Effects may update state when the update is conditional or converges (fetch → set once, subscription sync, etc.)
+
+- Q6 - Effects vs events
+
+  ```tsx
+  useEffect(() => {
+    submitOrder(order);
+  }, [order]);
+
+  ```
+
+  - 1. it is like side-effects used to synchronize states;
+  - 2. Imagin a user submitting order without confirming? that is a hue problem; an action such as submitting order should be handled with a handler (like `onClick`) so that intention is loud and clear.
+  - 3. Logic should be inside a dedicated function like `onClick`  
+
+- Q7 - Dependency array truth test
+  - 1. **The dependency array controls when an effect runs.** 
+    - False, Dependency array controls which render an effect corresponds to, not timing.
+  - 2. **You may omit dependencies if you “know they won’t change”.**
+    - False, code smell
+  - 3. **Every value read inside an effect must be listed.**
+    - True, best practices
+  - 4.  **`useEffect` is the right place to derive state from props.**
+    - False, why not we just derive during render? isn't that more straight forward and readable.
+
+- Q8 - The senior question (final boss)
+  - An effect should exist only to synchronize React’s rendered output with the outside world.
 
 ---
 ## React, Javascripts Fundamentals
