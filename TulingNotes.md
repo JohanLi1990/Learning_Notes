@@ -42,6 +42,7 @@
   - [ZooKeeper](#zookeeper)
     - [Data Structure: Different Nodes](#data-structure-different-nodes)
     - [Watcher/monitor mechanism](#watchermonitor-mechanism)
+    - [ZooKeeper Cluster Architecture](#zookeeper-cluster-architecture)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -1127,6 +1128,16 @@ events are: `None`, `NodeCreated`, `NodeDeleted`, `NodeDataChanged`, `NodeChildr
 
 - Application 1: Co-operated service , master-worker pattern.
 - Application 2: Atomic increment 
+
+### ZooKeeper Cluster Architecture
+
+- **Cluster Roles**: Leader, Follower, Observer
+  - Leader, handles all write events / transaction events
+  - Follower, handles non-transactional events, for transactional events, it forward to Leader
+  - Observer, handles non-transactional events, for transactional events, it forward to Leader, does **not** participate in leader election
+
+- **Election Mechanism**
+  - epoch -> zxid -> myid
 
 
 ## Kafka

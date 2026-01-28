@@ -44,6 +44,8 @@
     - [Session 4 TypeScript for React (props, callbacks, hooks)](#session-4-typescript-for-react-props-callbacks-hooks)
     - [Session 5 useMemo, React.memo, and React Performance Myths](#session-5-usememo-reactmemo-and-react-performance-myths)
     - [Session 6 - Effects](#session-6---effects)
+  - [React Redux phase 3](#react-redux-phase-3)
+    - [3.1 Redux without React](#31-redux-without-react)
   - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
@@ -1471,6 +1473,30 @@ React is going to run the effect twice, and set the User twice.
 
 - Q8 - The senior question (final boss)
   - An effect should exist only to synchronize React’s rendered output with the outside world.
+
+---
+
+## React Redux phase 3
+
+Redux is event-sourcing with constraints
+
+### 3.1 Redux without React
+
+Redux reducers are replayable state transition functions.
+
+**Quiz**
+1. **Why exactly is Date.now() inside a reducer considered “impure”?**
+
+because the result is not idempotent, every dispatch of `touch` could result in a different `lastUpdated` state, eventhough the external state never really changed.
+
+2. **What’s the “Redux-correct” way to set lastUpdated? (describe in 1–2 lines)**
+
+in this case we should compute `Date.now()` and pass it to `touch`; basically do dependency injection.
+
+3. **If we replay actions from a log, what breaks when reducers are impure?**
+
+The state re-created from those actions will be different everytime; and that is a problem for OMS, because before market open, we will have to replay events to recreate all existing orders and their state. If the function is not pure and deterministic, then the order state will be messed up.
+
 
 ---
 ## React, Javascripts Fundamentals
