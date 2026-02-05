@@ -43,6 +43,7 @@
     - [Data Structure: Different Nodes](#data-structure-different-nodes)
     - [Watcher/monitor mechanism](#watchermonitor-mechanism)
     - [ZooKeeper Cluster Architecture](#zookeeper-cluster-architecture)
+    - [Zookeeper Java Client APP](#zookeeper-java-client-app)
   - [Kafka](#kafka)
     - [Kafka 上手](#kafka-上手)
     - [Kafka 客户端详解](#kafka-客户端详解)
@@ -1139,6 +1140,17 @@ events are: `None`, `NodeCreated`, `NodeDeleted`, `NodeDataChanged`, `NodeChildr
 - **Election Mechanism**
   - epoch -> zxid -> myid
 
+### Zookeeper Java Client APP
+
+- **zookeeper client**
+- **Apache Curator (preferred)**
+
+- **Use Zookeper for distributed ID creation**
+  - Requirements:
+    - Globally unique
+    - Highly availabe
+  - Common solutions: Java UUID, redis ID, SnowFlake, Zookeeper ID, MongoDB objectId
+  - Use PERSISTENT_SEQUENTIAL NODE / EPHEMERAL_SEQUENTIAL NODE
 
 ## Kafka
 ### Kafka 上手

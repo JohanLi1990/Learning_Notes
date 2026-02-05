@@ -46,6 +46,14 @@
     - [Session 6 - Effects](#session-6---effects)
   - [React Redux phase 3](#react-redux-phase-3)
     - [3.1 Redux without React](#31-redux-without-react)
+    - [3.2 Redux Toolkit \& Immer](#32-redux-toolkit--immer)
+    - [3.3 useSelector, re-renders, and “accidental new objects”](#33-useselector-re-renders-and-accidental-new-objects)
+    - [3.4 Async the Redux way](#34-async-the-redux-way)
+  - [Reduc Phase 4](#reduc-phase-4)
+    - [4.1 Project structure \& boundaries](#41-project-structure--boundaries)
+    - [4.2 Mutations, invalidation \& optimistic updates 🔥](#42-mutations-invalidation--optimistic-updates-)
+    - [4.3 Derived state + selector architecture (code-heavy)](#43-derived-state--selector-architecture-code-heavy)
+    - [4.4 UX polish patterns](#44-ux-polish-patterns)
   - [React, Javascripts Fundamentals](#react-javascripts-fundamentals)
 
 
@@ -1497,6 +1505,581 @@ in this case we should compute `Date.now()` and pass it to `touch`; basically do
 
 The state re-created from those actions will be different everytime; and that is a problem for OMS, because before market open, we will have to replay events to recreate all existing orders and their state. If the function is not pure and deterministic, then the order state will be messed up.
 
+### 3.2 Redux Toolkit & Immer
+
+**Quizes**
+
+1. **Why does Redux require a new object reference for state updates?**
+
+  Redux/React-Redux detect changes primarily via reference equality (===) and shallow checks
+
+  If you mutate in place, the reference doesn’t change, and consumers can’t reliably know something changed without deep comparisons (slow/unscalable). The debugging/testing benefits are real — but reference equality is the core mechanism.
+
+  Because in redux we are never allowed to mutate the original/current state values
+  and this is due to:
+      - It causes bugs, such as UI not updating properly to show the latest values
+      - It makes it harder to understand why and how the state has been updated
+      - It makes it harder to write tests
+      - it breask the ability to use "time-travel debugging" correctly
+      - It goes against the intended spirit and usage patterns for Redux
+
+
+
+2. **What problem does Immer solve specifically (not “less typing”)?**
+
+  Immer guarantees structural sharing + immutability while allowing you to write “mutating” code safely.
+ 
+
+3. **When could Immer become a performance footgun?**
+
+  Immer can be a performance footgun when:
+    - you create/modify very large objects/arrays frequently
+    - or you do big updates where the “draft/proxy” tracking overhead dominates
+    - or you accidentally force deep traversal (e.g., copying/serializing huge drafts)
+
+  Depth alone isn’t the issue; size × frequency is.
+  
+  Also: returning a brand new object in a hot reducer can be faster, but it can also be worse if you copy more than necessary. “Hotpath” needs measurement.
+
+
+**Mini-quiz (super important for React re-renders)**
+
+After you run it:
+
+1. **If a component selects only state.counter.meta, will it re-render on increment()? Why?**
+
+  No, becase when React checks the reference, it is still the same `state.counte.meta`, nothing changed, so there is no re-render.
+  A component that selects `state.counter.meta` will not re-render as long as the selector returns the same reference and React-Redux’s equality check passes (default is `===`). Correct.
+
+
+2. **If a component selects state.counter as a whole, will it re-render on increment()? Why?**
+
+  Yes, it will because state.counter is a new object with value being updated.
+
+
+3. **What selector style is usually better for performance: “big object” or “small fields”? Why?**
+
+  From this example, it is small fields because small fields are less likely to be updated and therefore saves efforts for re-render. 
+  “small fields” is usually better, but the deeper rule is: select the smallest stable thing you need, and avoid returning freshly-created objects/arrays from selectors.
+
+
+### 3.3 useSelector, re-renders, and “accidental new objects”
+
+
+1. **Why is useMemo inside a component not a fix for a bad selector?**
+
+  ```
+  store update
+  → useSelector runs selector
+  → selected !== previousSelected → component re-renders
+  → only then does useMemo run
+  ```
+  if the selector returns a new object every time, the re-render already happened; `useMemo` will not work.
+
+2. **What invariant allows React-Redux to avoid deep comparisons?**
+
+  Redux state is immutable and updated via reference changes.
+  Because of that invariant:
+    unchanged state = same reference
+    changed state = new reference
+  Redux can safely rely on `prev === next`
+
+3. **When is it acceptable to use shallowEqual, and what’s the tradeoff?**
+
+  if the combined selector is not huge; shallow compare incurs overhead, and if the combined object is huge, it could waste time.
+  you intentionally return a small object
+  fields are primitives or stable references
+  readability > micro-optimizations
+
+  Tradeoffs:
+  shallow comparison cost on every store update
+  hides selector design issues
+  can mask accidental object recreation
+
+### 3.4 Async the Redux way
+
+1. **Why didn’t Redux throw an error for the async reducer?**
+
+  Actually there was an error: 
+  ```ts
+      store.ts:23 Uncaught TypeError: Cannot perform 'get' on a proxy that has been revoked
+        at store.ts:23:17
+  ```
+
+  Correct: Redux isn’t policing “async reducers” directly.
+  Redux calls your reducer synchronously and moves on.
+  The error happened because Immer revoked the draft proxy once the reducer returned, and your setTimeout callback tried to access it later.
+  Reducers run inside a controlled “draft” window. Once the reducer returns, that window is closed.
+
+2. **What exactly triggers a re-render in the thunk version?**
+
+  In the thunk version it is the `dispatch(increment())` that result in re-render; it is basically iniating an action to update redux store. 
+  `dispatch(increment())` → reducer runs → store state reference changes → React-Redux’s `useSelector` sees selected values change → component re-renders.
+
+3. **What invariant did we preserve by moving async out?**
+
+  We preserve the contract that `f(state, action) -> nextState`, no timing related delay should be in the equations.
+
+
+**Thunk Example of Query**
+```ts
+//todoSlice.ts
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import type { AppDispatch } from "./store";
+
+export type Todo = { id: number; title: string };
+
+type TodosState = {
+  items: Todo[];
+  status: "idle" | "loading" | "succeeded" | "failed";
+  error: string | null;
+};
+
+const initialState: TodosState = {
+  items: [],
+  status: "idle",
+  error: null,
+};
+
+const todosSlice = createSlice({
+  name: "todos",
+  initialState,
+  reducers: {
+    fetchStarted(state) {
+      state.status = "loading";
+      state.error = null;
+    },
+    fetchSucceeded(state, action: PayloadAction<Todo[]>) {
+      state.status = "succeeded";
+      state.items = action.payload;
+    },
+    fetchFailed(state, action: PayloadAction<string>) {
+      state.status = "failed";
+      state.error = action.payload;
+    },
+  },
+});
+
+export const { fetchStarted, fetchSucceeded, fetchFailed } = todosSlice.actions;
+export default todosSlice.reducer;
+
+export const fetchTodosThunk = () => async (dispatch: AppDispatch) => {
+  dispatch(fetchStarted());
+  try {
+    const res = await fetch("https://jsonplaceholder.typicode.com/todos?_limit=5");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as Todo[];
+    dispatch(fetchSucceeded(data));
+  } catch (e) {
+    dispatch(fetchFailed(e instanceof Error ? e.message : "unknown error"));
+  }
+};
+// -----------------------------------------------------------
+//store.ts
+import todosReducer from "./todosSlice";
+
+export const store = configureStore({
+  reducer: {
+    counter: counterSlice.reducer,
+    todos: todosReducer,
+  },
+});
+// -----------------------------------------------------------
+//App.tsx
+import { useDispatch, useSelector } from "react-redux";
+import type { RootState, AppDispatch } from "./store";
+import { fetchTodosThunk } from "./todosSlice";
+
+function TodosThunkDemo() {
+  const dispatch = useDispatch<AppDispatch>();
+  const { items, status, error } = useSelector((s: RootState) => s.todos);
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <button onClick={() => dispatch(fetchTodosThunk())}>
+        fetch todos (thunk)
+      </button>
+
+      {status === "loading" && <div>loading...</div>}
+      {status === "failed" && <div>error: {error}</div>}
+
+      <ul>
+        {items.map(t => (
+          <li key={t.id}>{t.title}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default function App() {
+  return <TodosThunkDemo />;
+}
+
+
+```
+
+**RTKQuery**
+
+```tsx
+//todoApi.ts
+import { useDispatch, useSelector } from "react-redux";
+import type { RootState, AppDispatch } from "./store";
+import { fetchTodosThunk } from "./todosSlice";
+
+function TodosThunkDemo() {
+  const dispatch = useDispatch<AppDispatch>();
+  const { items, status, error } = useSelector((s: RootState) => s.todos);
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <button onClick={() => dispatch(fetchTodosThunk())}>
+        fetch todos (thunk)
+      </button>
+
+      {status === "loading" && <div>loading...</div>}
+      {status === "failed" && <div>error: {error}</div>}
+
+      <ul>
+        {items.map(t => (
+          <li key={t.id}>{t.title}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default function App() {
+  return <TodosThunkDemo />;
+}
+// -----------------------------------------------------------
+//store.ts
+import { todoApi } from "./todoApi";
+
+export const store = configureStore({
+  reducer: {
+    counter: counterSlice.reducer,
+    [todoApi.reducerPath]: todoApi.reducer,
+  },
+  middleware: getDefault => getDefault().concat(todoApi.middleware),
+});
+// -----------------------------------------------------------
+//App.tsx
+import { useGetTodosQuery } from "./todoApi";
+
+function TodosRtkQueryDemo() {
+  const { data, isLoading, isError, error, refetch } = useGetTodosQuery();
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <button onClick={() => refetch()}>refetch (rtk query)</button>
+
+      {isLoading && <div>loading...</div>}
+      {isError && <div>error: {String((error as any)?.status ?? error)}</div>}
+
+      <ul>
+        {(data ?? []).map(t => (
+          <li key={t.id}>{t.title}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default function App() {
+  return <TodosRtkQueryDemo />;
+}
+
+
+```
+
+
+**Final Quiz**
+
+1. **Why does the Immer proxy get “revoked” after the reducer returns?**
+   
+  Immer creates a temporary draft proxy that is valid only during the reducer execution.
+  Once the reducer returns, Immer:
+  - finalizes the next immutable state
+  - revokes the draft proxy
+  - guarantees no mutation can happen outside the reducer window
+
+2. **In the thunk version, list the extra things you had to build that RTK Query gave you for free.**
+    
+  With thunks, you built manually:
+  - loading state machine (idle → loading → success/failed)
+  - error storage
+  - success storage
+  - retry / refetch logic
+  - deduplication (you didn’t, but you’d have to)
+  - caching rules (you didn’t, but prod apps must)
+
+  RTK Query gave you all of that: for free; consistently; correctly; with less code; with fewer bugs
+
+  That contrast is the point of RTKQ.
+
+3. **If you need “fetch todos, then if empty fetch user profile, then dispatch a toast, then navigate” — thunk or RTK Query, and why**?
+
+  For highly customized data fetching logics, you definitely need thunk. RTK Query cannot give you such as fine-grained control over business logics.
+  RTK Query:
+  - fetches & caches server data
+  - manages lifecycle of requests
+
+  Thunks:
+  - orchestrate business processes
+  - coordinate multiple actions
+  - handle branching logic
+  - trigger side-effects (toasts, navigation, analytics)
+  
+  RTK Query owns data. Thunks own behavior.
+
+
+**Summary**
+
+```
+┌──────────────────────────────┐
+│ React Components             │
+│                              │
+│ useSelector / RTKQ hooks     │
+└───────────────┬──────────────┘
+                │
+┌───────────────▼──────────────┐
+│ Redux Store                  │
+│                              │
+│ UI Slices     → client state │
+│ Thunks        → workflows    │
+│ RTK Query     → server cache │
+└───────────────┬──────────────┘
+                │
+┌───────────────▼──────────────┐
+│ Reducers                     │
+│ (pure, sync, deterministic)  │
+└──────────────────────────────┘
+
+
+```
+
+- in redux, an action is `{ type: string, payload?: any }`
+  
+  **plain objects, synchronous**
+  e.g.
+  ```ts
+    dispatch(increment());
+    dispatch(fetchSucceeded(todos));
+    dispatch(setSource("X"));
+  ```
+
+- a thunk is `(dispatch, getState) => void | Promise<void>`
+  
+  a function, not an object
+  executed by **middleware**
+  can:
+    - wait
+    - branch
+    - inspect state
+    - call APIs
+    - dispatch multiple actions
+    - does not update state directly
+  
+  ```ts
+    dispatch(fetchTodosThunk());
+    //inside
+    dispatch(fetchStarted());
+    await fetch(...)
+    dispatch(fetchSucceeded(data));
+  ```
+
+  Thunks handle *time*, *io*, *control flows*, *orchestration* which actions simply cannot.
+ 
+- redux-thunk middleware vs RTKQ middleware
+  
+  - Reducers handle UI / client state
+  - Thunks handle workflows & side effects
+  - RTK Query handles server state
+
+  ```
+    dispatch(...)
+      │
+      ├─ thunk middleware
+      │     └─ “Is this a function? If yes, execute it.”
+      │
+      ├─ RTK Query middleware
+      │     └─ “Is this a query action? If yes, run the engine.”
+      │
+      ▼
+    reducers
+      └─ pure, sync, deterministic
+
+  ```
+---
+## Reduc Phase 4
+### 4.1 Project structure & boundaries
+
+1. **Why does RTK Query require adding todosApi.middleware, but our uiSlice doesn’t?**
+
+  `todosApi` is not using the same middleware to run its thunk as the default react-redux middleware. The default middleware is used to manage client side UI state; RTK Query use a customized middleware to implement its own caching / retry / error handling thunks.
+
+  - uiSlice → pure reducers → handled entirely by Redux core
+  - RTK Query → long-lived async system
+    - request lifecycle
+    - caching
+    - deduplication
+    - retries
+    - refetch on focus/reconnect
+    - subscription tracking
+
+  This requires a specialized middleware that runs continuously, not just "executue a funciton";
+  RTK Query uses thunks internally, but thunk alone is far too primitive for what RTKQ does.
+
+2. **What’s the difference between ui.filter state and todosApi cached state?**
+
+  `ui.filter` state is managed by client side business logic, whereas todosApi cached state is managed by RTK Query
+  - `ui.filter` = client/UI state
+    - ephemeral
+    - user-driven
+    - not shareable across users
+    - usually not persisted
+  - `todosApi` state = server state
+    - derived from backend
+    - cached & shared across components
+    - has freshness & invalidation rules
+    - owned by RTK Query, not your reducers
+  - Distinction is the architectural backbone of modern Redux.
+
+3. **If we add another page later, where should shared components go?**
+
+  to the `src/shared/components` folder
+
+### 4.2 Mutations, invalidation & optimistic updates 🔥
+
+1. **Why don’t we need to manually update the todo list after toggling?**
+   
+  Because toggling triggers the mutation function, which invalidates the data represented by the "Todo" tags; Since the "Todo" tags refers to the data provided by the getTodos query, getTodosQuery will have to be recalled. So in essence, RTKQuery will automaticllay help us update the latest todo list.
+
+
+2. **What role do tags play in cache invalidation?**
+
+  "Tags" allows mutations to inform the RTKQeury framework, which cache are now stale; RTK therefore invalidates those caches and do a refetch.
+
+
+3. **Why is this safer than updating Redux state manually?**
+   
+   Because you may or may not miss a state if you choose to do it manually. 
+   RTKQ tags is basically an observer / listeners pattern , so it is much more systematic approach to state managements.
+   **the big safety win is single source of truth for server state** + consistent lifecycle handling (loading/error/retry/cache). Manual updates tend to drift and create edge-case bugs.
+
+
+optimistic updates quiz
+
+1. **What exactly is updateQueryData patching? Where does that data live?**
+  
+  Correct. More precise:
+  - It patches the cached result for the specific endpoint+arg: 
+    - endpoint: "getTodos"
+    - arg: undefined (because your query has void)
+
+  - Data lives in Redux store under todosApi.reducerPath (RTK Query slice of state), not in your own reducers.
+  - So it’s still Redux state—just owned/managed by RTKQ.
+
+
+2. **Why do we need patchResult.undo()?**
+
+  Optimistic update assumes success
+  - If server fails, cached data would be lying
+  - undo() reverts the cache to the previous value using Immer patches internally (yep)
+  The key concept is cache correctness under failure.
+
+3. **In a real app, would you keep invalidatesTags: []? When/why?**
+
+  Here’s the production rule of thumb:
+
+  - ✅ Keep invalidatesTags: [] when:
+    - your optimistic update (or manual cache update) fully updates the cached data you care about
+    - you want to avoid extra network traffic
+    - the server response doesn’t change anything else that you didn’t update
+
+  - ❌ Prefer invalidation when:
+    - the mutation can affect other cached queries (lists, aggregates, counters, pagination, etc.)
+    - server may apply business rules (e.g., toggling todo also updates updatedAt, ordering, permissions)
+    - you want the backend to be the source of truth for final shape
+
+  - A common hybrid:
+    - do optimistic update for instant UI
+    - still invalidate relevant tags after success (or selectively refetch)
+  depending on how “authoritative” the server response is
+
+
+### 4.3 Derived state + selector architecture (code-heavy)
+
+1. **Why is `createSelector` a better place for derived todo filtering than doing it inside the component?**
+
+  It is a better place if we consider re-usability -> many other components that reads filtered todos could use the selector
+  also a good example of Single Responsibilty Prinicple => a component that renders UI should not take responsibility of generating the data.
+
+  Centralizing derivation also gives you one place to optimize when performance becomes an issue.
+
+2. **Why do we create `selectTodosData` (array) instead of having components select the whole RTK Query sub-state object?**
+
+  We only need data for filtering. why do we need to entire state? `result.data` seems sufficient.
+  Selecting the whole object => if later one unused field of the state changed => re-render
+
+
+3. **What’s one way to accidentally “break memoization” of `createSelector`?**
+
+  createSelector will return the same result (cached) if the same input (`===`) is passed to it. 
+  So if `selectTodosResult = todosApi.endpoints.getTodos.select(limit);` and limit always change, then
+  ```ts
+    export const selectTodosData = createSelector(
+    selectTodosResult,
+    (result) => result.data ?? []
+  );
+  ```
+  the `selectTodosData` selector will always re-run, instead of returning cached result, because `limit` now is part of the equation.
+  - Extra production pitfalls (to lock this in):
+    - Passing inline objects as query args
+    - Passing non-memoized arrays
+    - Returning new objects from input selectors
+    - Creating selectors inside components
+  - Rule to remember:
+    - Stable inputs + stable selector definitions = working memoization
+
+### 4.4 UX polish patterns
+
+1. **Why shouldn’t request errors be handled by Error Boundaries?**
+
+  Refined principle:
+  - Error Boundaries catch render-time bugs (programmer errors)
+  - Request errors are expected runtime states (network down, 401, 500)
+
+  If you use Error Boundaries for request errors:
+  - you lose context (which request failed?)
+  - you collapse recoverable states into “app broken”
+  - you can’t offer targeted retry UX
+
+  So request errors should be: handled locally and intentionally (like loading/empty states)
+
+2. **What advantage does <QueryState /> give over inline if (isLoading) logic?**
+
+  Expanded benefits:
+  - reuse across pages
+  - consistent UX
+  - removes noise from feature components
+  - centralizes error + retry patterns
+
+  makes future UX changes trivial (spinner → skeleton, etc.) This is UI architecture, not just convenience.
+
+3. **Where should retry logic live, and why?**
+
+  Triggering retry (button click) → UI / QueryState
+  Executing retry (refetch, backoff, dedupe) → RTK Query
+
+  RTK Query owns:
+  - request lifecycle
+  - retries
+  - refetch-on-focus/reconnect
+  - caching correctness
+
+  UI should only express intent, not implement mechanics.
 
 ---
 ## React, Javascripts Fundamentals
