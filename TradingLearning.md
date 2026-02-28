@@ -95,9 +95,61 @@
     - Short ES + long SPY (arb)
     
 
-- Cross Sectional Mean Reversion
-  - Linear strategy
-  - if Stock A up 4%, and Stock B up 2 %, you short stock A twice as you short Stock B.
+  - Cross Sectional Mean Reversion
+    - Linear strategy
+    - if Stock A up 4%, and Stock B up 2 %, you short stock A twice as you short Stock B.
+
+## Chapter 6 Interday Momentum Strategies
+
+- Times Series Strategies
+  - Is it momentum?
+  - Or is it mean reversion
+  - Future (espeically commodities and indices) tend to exhibit stronger time-series momentum than most individual stocks.
+    - Stocks → more mean-reversion at short horizons
+    - Futures → more trend/momentum at medium horizons
+  - Momentum is strongest when:
+    - There are slow-moving fundamental forces
+    - Large capital flows move gradually
+    - Leverage is available
+    - Shorting is frictionless
+    - Futures satisfy all four.
+  - Trading Rule suggested by Earnest (using Lagged RollReturn)
+    ```
+      If lagged roll > +threshold → go long
+      If lagged roll < -threshold → go short
+      Otherwise → stay flat
+
+    ```
+    instead of using past price trend, we should use term structure economics directly;
+    He is trying to answer what causes momentum in futures.
+
+- Extracting Roll Returns through Future versus ETF Arbitrage
+- Cross-Sectional Strategies
+
+## Chapter 7 Intraday Momentum Strategies
+
+- Post earnings announcement Drift strategy, worth a shot for implementations
+- PEAD
+
+## Chapter 8 Risk Management
+
+- Kelly formulae: `f = mean / var^2`
+  - For example from backtest: 
+    - Expected return = 12%
+    - Volatility = 18%
+    - `f = (0.12 / 0.18^2) = 3.7`
+- 1️⃣ Mean-reversion strategies
+  - Often LOVE volatility
+  - Big overshoots → strong snapbacks
+  - Panic creates mispricing
+
+- 2️⃣ Momentum / gap continuation strategies
+  - May suffer during chaos
+  - Whipsaws increase
+  - Directional signals break down
+
+## Conclusion
+
 
 ## Glossary
 
@@ -106,10 +158,15 @@
   The Sharpe ratio is defined as a measure of the return per unit of risk for an investment . It is calculated by dividing the excess return of a portfolio by its volatility, which is a measure of the portfolio's risk . The formula for the Sharpe ratio is `(R_p - R_f) / σ_p`, where `R_p` is the average return of the portfolio, `R_f` is the risk-free rate, and `σ_p` is the volatility of the portfolio .
 
   Sharpe hdes tail risk; two strategies with same Sharpe can have very different drawdowns.
+  ```
+   Sharpe=std daily / mean daily​ × (252)^0.5
+​
+  ```
 
 - **Johansen's Test**
   
   Stock prices usually wonder, but some prices **move together long term**
+
   Examples: Two shares classes of the same company; Oil spot price vs oil futures; ETD vs its underlying basket
   Johansen’s test checks:
   - “Is there one or more stable relationship hidden inside these drifting series?”
@@ -132,10 +189,16 @@
   - That $2 is negative roll return
   - It is cost of carry
   - Contango exists usually due to storage cost, financing cost, insurance cost, (e.g. holding physical oil costs money)
+
 - **Backwardation**
   - Opposite of Contango
   - Future months are cheaper than near month
   - When you sell march at $70, buy April At $68, you gain $2, that is positive roll return.
   - Backwardation exists usually due to Supply shortage; immediate demand spike; convenience yield (peopl wnat oil NOW)
 
-  
+- **Bollinger Band**
+  - A bollinger band tells you whether price is "expensive" or "cheap" relative to its recent average
+  - You see:
+    - Middle line = moving average (usually 20-day)
+    - Upper band = moving average + 2 standard deviations
+    - Lower band = moving average − 2 standard deviations
