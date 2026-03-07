@@ -194,6 +194,8 @@
       - [Why metadata is not on the heap](#why-metadata-is-not-on-the-heap)
       - [ClassLaoding Summary](#classlaoding-summary)
     - [What does parent delegation model ensure](#what-does-parent-delegation-model-ensure)
+- [微服务专题 （Microservices)](#微服务专题-microservices)
+  - [1. Hands on SpringBoot core process](#1-hands-on-springboot-core-process)
 
 
 # 性能优化-JVM-MYSQL
@@ -6359,3 +6361,207 @@ A design choice, not a technical requirements
 > Parent delegation is not strictly necessary, but it enforces security, type consistency, and trust boundaries.
 It prevents core classes from being overridden, ensures a single definition of fundamental types, and allows the JVM to safely compose code from different class loaders.
 Advanced systems may intentionally break delegation, but only with great care.
+
+# 微服务专题 （Microservices)
+
+## 1. Hands on SpringBoot core process
+
+- We need Springboot to help 
+  - Create Spring container (application context)
+  - Create Tomcat Server
+  - Create DispatchServlet, and bind it to application context (Request mapping)
+  - Add DispatchServlet to Tomcat
+  - run Tomcat
+- Example Code
+  ```java
+
+  /**
+  * 大都督周瑜（微信: dadudu6789）
+  */
+  @ZhouyuSpringBootApplication
+  public class MyApplication { // spring.factories
+
+      public static void main(String[] args) {
+          ZhouyuSpringApplication.run(MyApplication.class);
+      }
+  }
+
+  public class ZhouyuSpringApplication {
+
+      public static void run(Class clazz){
+          AnnotationConfigWebApplicationContext applicationContext = new AnnotationConfigWebApplicationContext();
+          applicationContext.register(clazz);
+          applicationContext.refresh();
+          startTomcat(applicationContext);
+          
+      }
+  }
+  ```
+
+  Tomcat
+  ```java
+
+  public static void startTomcat(WebApplicationContext applicationContext){
+    
+    Tomcat tomcat = new Tomcat();
+    
+    Server server = tomcat.getServer();
+    Service service = server.findService("Tomcat");
+    
+    Connector connector = new Connector();
+    connector.setPort(8081);
+    
+    Engine engine = new StandardEngine();
+    engine.setDefaultHost("localhost");
+    
+    Host host = new StandardHost();
+    host.setName("localhost");
+    
+    String contextPath = "";
+    Context context = new StandardContext();
+    context.setPath(contextPath);
+    context.addLifecycleListener(new Tomcat.FixContextListener());
+    
+    host.addChild(context);
+    engine.addChild(host);
+    
+    service.setContainer(engine);
+    service.addConnector(connector);
+    
+    tomcat.addServlet(contextPath, "dispatcher", new DispatcherServlet(applicationContext));
+    context.addServletMappingDecoded("/*", "dispatcher");
+    
+    try {
+      tomcat.start();
+    } catch (LifecycleException e) {
+      e.printStackTrace();
+    }
+    
+  }
+
+  ```
+
+- **How does SpringBoot knows the `Beans` defined in User code?**
+  - via `clazz` passed to `SpringBootApplication`
+  - the annotation `@SpringBootApplication` has `@ComponentScan` on top
+  - therefore, when `AnnotationConfigWebApplicationContext.refresh()`, `clazz` will be resolved, and be discovered that it is also annotated with `@ComponentScan` (`clazz` is annotated with `@SpringBootApplication`);
+  - if the `@ComponentScan` on the `clazz` is empty, then `AnnotationConfigWebApplicationContext` will scan the package path of the `clazz`
+
+- How do we let **SpringBoot dynamically select the Web Server, based on Business requirements** (i.e. what is and what is not present in the dependencies of pom.xml from **user** package)
+  - We can utilize `@Conditional` annotations
+  ```java
+  public static WebServer getWebServer(ApplicationContext applicationContext){
+    // key为beanName, value为Bean对象
+    Map<String, WebServer> webServers = applicationContext.getBeansOfType(WebServer.class);
+    
+    if (webServers.isEmpty()) {
+      throw new NullPointerException();
+    }
+    if (webServers.size() > 1) {
+      throw new IllegalStateException();
+    }
+    
+    // 返回唯一的一个
+    return webServers.values().stream().findFirst().get();
+  }
+
+  // ------ COnfiguration
+
+  @Configuration
+  public class WebServiceAutoConfiguration {
+
+      @Bean
+      @ZhouyuConditionalOnClass("org.apache.catalina.startup.Tomcat")
+      public TomcatWebServer tomcatWebServer(){
+          return new TomcatWebServer();
+      }
+
+      @Bean
+      @ZhouyuConditionalOnClass("org.eclipse.jetty.server.Server")
+      public JettyWebServer jettyWebServer(){
+          return new JettyWebServer();
+      }
+  }
+  
+  // ------- 
+
+  @Target({ ElementType.TYPE, ElementType.METHOD })
+  @Retention(RetentionPolicy.RUNTIME)
+  @Conditional(ZhouyuOnClassCondition.class)
+  public @interface ZhouyuConditionalOnClass {
+      String value() default "";
+  }
+
+  // ---- Custom Condition
+
+  public class ZhouyuOnClassCondition implements Condition {
+
+      @Override
+      public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+          Map<String, Object> annotationAttributes = 
+        metadata.getAnnotationAttributes(ZhouyuConditionalOnClass.class.getName());
+
+          String className = (String) annotationAttributes.get("value");
+
+          try {
+              context.getClassLoader().loadClass(className);
+              return true;
+          } catch (ClassNotFoundException e) {
+              return false;
+          }
+      }
+  }
+  ```
+  
+  - However, it is still not enough, we need SpringBoot to be able to resolve/dynamically discover this `WebServiceAutoConfiguration` class
+  - But previously it can only scan the dir of `clazz`, `WebServiceAutoConfiguration` is in SpringBoot code, so how?
+  - We can leverage something called SPI. 
+    - prior to Spring 2.7.14 : `META-INF/spring.factories`
+    - after: `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+    - Basically it load all `spring.factories` file from classpath
+    - Parsed them as **Properties files**
+    - Looked for the key `EnableAutoConfiguration`
+    - Load Every class listed. 
+  - Example Code:
+  ```java
+
+
+  public class ZhouyuImportSelect implements DeferredImportSelector {
+      @Override
+      public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+          ServiceLoader<AutoConfiguration> serviceLoader = ServiceLoader.load(AutoConfiguration.class);
+
+          List<String> list = new ArrayList<>();
+          for (AutoConfiguration autoConfiguration : serviceLoader) {
+              list.add(autoConfiguration.getClass().getName());
+          }
+
+          return list.toArray(new String[0]);
+      }
+  }
+
+  // ================
+
+
+  @Target(ElementType.TYPE)
+  @Retention(RetentionPolicy.RUNTIME)
+  @Configuration
+  @ComponentScan
+  @Import(ZhouyuImportSelect.class)
+  public @interface ZhouyuSpringBootApplication {
+  }
+
+  ```
+
+  **This is the core Idea** of SpringBoot autoconfiguration
+
+- Fun fact, why is it throwing errors, and why it doesn't bother us?
+  ![ConditionalClss](./ConditionalOnClass.png)
+
+  - It is throwing error becase IDE could not find the `MongoClient.class` and `MongoTemplate.class`
+  - There are two phases where errors are thrown, Compile phase and Runtime Phase
+  - This error message is thrown when **IDEA** decompile the `.class` file into java code. 
+  - At compile time we are dealing with `.class` byteCode, all these errors that is thrown by IDE for libraries are not affecting us, because they are not compiled at all, just used
+  - At runtime, we are just dealing with bytecode, if the `MongoClinet.class` byte code is not found, **IT IS OKAY**, becuase in spring boot source code, we catch all Exceptions (incl. runtime)
+
+
