@@ -196,6 +196,7 @@
     - [What does parent delegation model ensure](#what-does-parent-delegation-model-ensure)
 - [微服务专题 （Microservices)](#微服务专题-microservices)
   - [1. Hands on SpringBoot core process](#1-hands-on-springboot-core-process)
+  - [2. Spring Boot Source code](#2-spring-boot-source-code)
 
 
 # 性能优化-JVM-MYSQL
@@ -6564,4 +6565,51 @@ Advanced systems may intentionally break delegation, but only with great care.
   - At compile time we are dealing with `.class` byteCode, all these errors that is thrown by IDE for libraries are not affecting us, because they are not compiled at all, just used
   - At runtime, we are just dealing with bytecode, if the `MongoClinet.class` byte code is not found, **IT IS OKAY**, becuase in spring boot source code, we catch all Exceptions (incl. runtime)
 
+## 2. Spring Boot Source code 
 
+The necessary steps can be retraced via reading Spring boot code. Here we only list out the important notes:
+
+[Spring Boot source code mind map](https://www.processon.com/view/link/64c664e0470d721c4e38bfe3)
+
+- How does Spring boot read all the `application.properties`
+  - During `prprepareEnvironment`
+    - `Environment` obj created
+    - `listeners.environmentPrepared`
+  - `EnvironmentPostProcessorApplicationListener` will handle this evnet, and resolve all config file; it will get `EnvironmentPostProcessor` from `spring.factories` and add configs to the environment
+    - `RandomValuePropertySourceEnvironmentPostProcessor`
+    - `SystemEnvironmentPropertySourceEnvironmentPostProcessor` , e.g. `-D`
+    - `SpringApplicationJsonEnvironmentPostProcessor`
+    - **`ConfigDataEnvironmentPostProcessor`**: Important, parsing and resolving all `application.properties` and `application.yml`
+    - `IntegrationPropertiesEnvironmentPostProcessor`  -> spring integration related
+    - `DebugAgentEnvironmentPostProcessor`
+- Order of externalized configuration:
+  - [Orders from high to low](https://www.processon.com/view/link/62d399e71e08530a89222b23)
+  - **Important:** where do we search for `application.properties` and `application-xxx.properties` file?
+    - the locations to search can be addtional defined by: `spring.config.location`, `spring.config.import`, `spring.config.additional-import`
+    - the default locations are: 
+      - `optional:file:./`
+      - `optional:file:./config/`
+      - `optional:file:./config/*`
+      - `optional:classpath:/`
+      - `optional:classpath:/config/`
+    - `file` refer to project folder, `classpath` refer to the `class` folder in the build artifacts
+    - the `resource` folder you see in Intellij Idea is just a convenient folder; in the build output, all `application.properties` are moved to `class` folder and are therefore under `classpath`
+    - you can define config name using spring.config.name
+    - `properties` are higher priority than `yaml`
+    - find `spring.profiles.active` from all the **above** files
+    - Final result:
+      ```
+        1. commandLineArgs
+        2. vcap (cloudFundry related)
+        3. spring.application.json
+        4. servletConfigInitParams
+        5. servletContextInitParams
+        6. systemProperties
+        7. systemEnvironment
+        8. random
+        9. application-dev.properties
+        10. applciation-dev.yml
+        11. application.properties
+        12. application.yml
+        13. defaultProperties
+      ```
