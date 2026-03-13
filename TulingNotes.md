@@ -197,6 +197,7 @@
 - [微服务专题 （Microservices)](#微服务专题-microservices)
   - [1. Hands on SpringBoot core process](#1-hands-on-springboot-core-process)
   - [2. Spring Boot Source code](#2-spring-boot-source-code)
+  - [3. Spring Boot Auto Configuraiton source code](#3-spring-boot-auto-configuraiton-source-code)
 
 
 # 性能优化-JVM-MYSQL
@@ -6613,3 +6614,17 @@ The necessary steps can be retraced via reading Spring boot code. Here we only l
         12. application.yml
         13. defaultProperties
       ```
+
+## 3. Spring Boot Auto Configuraiton source code
+
+- DeferredImportSelector: to resolve configurations (which rely on some other configs) later.
+- Conditional Annotations; e,g. `@ConditionalOnBena`, `@ConditionalOnMissingBean`
+  - We need a class to implement `Condition` class
+  - Source code to resolve condition is in Spring, not SPring Boot.
+- Spring boot starter mechanism
+  - e.g. `spring-boot-starter-web`, imports `spring-boot-starter`, `spring-boot-starter-json`,`spring-boot-startertomcat` into project
+  - Handled by beanPostProcessor
+  - e.g. import Tomcat web server.
+- Spring Boot AOP auto configuration
+  - By default Spring Boot **uses CGLIB** as default, even if the class to proxy has implemented an interface
+  - This is different from Spring.
