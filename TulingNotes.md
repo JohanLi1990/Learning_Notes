@@ -198,6 +198,8 @@
   - [1. Hands on SpringBoot core process](#1-hands-on-springboot-core-process)
   - [2. Spring Boot Source code](#2-spring-boot-source-code)
   - [3. Spring Boot Auto Configuraiton source code](#3-spring-boot-auto-configuraiton-source-code)
+  - [4. Spring Boot 3.0 new traits](#4-spring-boot-30-new-traits)
+  - [5. MicroService architecture introduction](#5-microservice-architecture-introduction)
 
 
 # 性能优化-JVM-MYSQL
@@ -6628,3 +6630,37 @@ The necessary steps can be retraced via reading Spring boot code. Here we only l
 - Spring Boot AOP auto configuration
   - By default Spring Boot **uses CGLIB** as default, even if the class to proxy has implemented an interface
   - This is different from Spring.
+
+## 4. Spring Boot 3.0 new traits
+
+  - Based on Spring Framework 6
+  - requires JDK 17 
+  - new 3rd party libs
+  - deprecation of spring.factories
+  - Spring Native (GraalVM + Spring Boot)
+
+## 5. MicroService architecture introduction
+
+- What is Microservice? [Martin Fowler article](https://martinfowler.com/articles/microservices.html)
+
+- Good architecture is not designed, is evolved, step by step.
+- [Taobo evolution over the years](https://share.note.youdao.com/ynoteshare/index.html?id=1c0ac494c7cb51b8436b68fc30d25c5b&type=note&_time=1773464361778)
+
+- What causes the evolution of architecutre? Business grows
+- Advantage of Microservice:
+  - Easy to maintain
+  - Faster dev iterations, agile
+  - System scalability
+  - Flexible choice of Tech stacks
+  - Isolation of errors
+- Disadvantages of Microservice:
+  - The whole architecture could be complicated
+  - Dependencies and api calls could get messy
+  - Data consistency issues (distributed lock)
+  - Investigations could be complex
+  - High learning curve
+- When do you consider Microservice?
+  - When current system has already been optimized to the fullest
+  - Positive impact to business expansiance
+  - Fullstack team.
+- Common Microservice stacks
