@@ -50,6 +50,12 @@
     - [Kafka 集群工作机制详解](#kafka-集群工作机制详解)
     - [Kafka 日志索引详解](#kafka-日志索引详解)
     - [Kafka 功能扩展](#kafka-功能扩展)
+  - [RocketMQ](#rocketmq)
+    - [RocketMQ快速实战以及核心概念详解](#rocketmq快速实战以及核心概念详解)
+      - [Introductions](#introductions)
+      - [Getting Started](#getting-started)
+      - [Clusters](#clusters)
+      - [RocketMQ main components:](#rocketmq-main-components)
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
@@ -1455,6 +1461,107 @@ Test-NetConnection 192.168.10.31 -Port 9092
       - Orders  → add static data
       - Trades  → add instrument info
       - Market data → join with reference data
+
+## RocketMQ
+
+### RocketMQ快速实战以及核心概念详解
+
+#### Introductions
+
+Highly availbale, Highly performant system
+
+| Middleware | Strengths | Tradeoffs | Best Fit |
+|---|---|---|---|
+| Apache Kafka | Extremely high throughput, strong durability, excellent ecosystem for event streaming, analytics, and log pipelines. | Operational complexity can be higher, ordering/consumer semantics require careful design, and it is not always the most convenient choice for traditional business queues. | Event streaming, log collection, data pipelines, real-time analytics |
+| RabbitMQ | Mature and easy-to-use message broker, flexible routing, strong support for traditional messaging patterns, good reliability. | Lower throughput at very large scale compared with Kafka, less suitable for massive event-streaming workloads. | Business messaging, task queues, request/async decoupling, complex routing scenarios |
+| Apache Pulsar | Good multi-tenant design, strong scalability, separation of storage and compute, supports both queues and streams. | Architecture and operations can feel more complex, and team familiarity/ecosystem may be weaker depending on the company. | Large-scale messaging platforms, multi-tenant systems, mixed queue + stream use cases |
+| Apache RocketMQ | Strong performance, solid transactional and ordered message support, good fit for enterprise business messaging. | International ecosystem/community is smaller than Kafka’s, and adoption/tooling can depend heavily on region and team experience. | Enterprise messaging, transaction-related workflows, ordered messages, finance/e-commerce scenarios |
+
+#### Getting Started
+
+Steps based on creating a **DLedger cluster** with leader election mechanism
+
+- Create Droplet in Digital Ocean.
+- Download rocketmq release versions in to each droplet,
+- Download the dashboard, build it locally via `mvn install`, copy it to any node
+- Configure `/etc/hosts` on each node:
+  
+  ```c
+    178.128.xxx.xxx 178-128-xx-xxx worker1
+    159.223.xxx.xx 159-223-xx-xxx worker2
+    206.189.xx.xxx 206-189-xx-xxx worker3
+  ```
+
+- put `application.yaml` at the same folder as the `dashboard.jar`
+
+  ```yaml
+  rocketmq:
+    config:
+      namesrvAddrs:
+        - 127.0.0.1:9876
+  ```
+
+- Customize jvm configurations
+  - Do it for `bin/runserver.sh`, adjust jvm size `Xms, Xmx, Xmn`
+  - Do it for `bin/runbroker.sh`, adjust jvm size `Xms, Xmx, Xmn`
+  
+- Adjust broker configuration under `config/broker.conf`:
+
+  ```yaml
+  brokerClusterName = RaftCluster
+  brokerName=RaftNode00
+  listenPort=30911
+  namesrvAddr=worker1:9876;worker2:9876;worker3:9876
+  storePathRootDir=/app/rocketmq/storeDledger/
+  storePathCommitLog=/app/rocketmq/storeDledger/commitlog
+  storePathConsumeQueue=/app/rocketmq/storeDledger/consumequeue
+  storePathIndex=/app/rocketmq/storeDledger/index
+  storeCheckpoint=/app/rocketmq/storeDledger/checkpoint
+  abortFile=/app/rocketmq/storeDledger/abort
+  enableDLegerCommitLog=true
+  dLegerGroup=RaftNode00
+  dLegerPeers=n0-worker1:40911;n1-worker2:40911;n2-worker3:40911
+  ## must be unique
+  dLegerSelfId=n0 #set n1 for worker2's config, n2 for worker3's config
+  sendMessageThreadPoolNums=16
+  ```
+
+- Firstly run name server on each node: `nohup bin/mqnamesrv &`
+
+- Next startup broker on each node: `nohup bin/mqbroker -c ./conf/dledger/broker.conf &`
+
+- startup dashboard: `java -jar rocketmq-dashboard-1.0.1-SNAPSHOT.jar 1>dashboard.log 2>&1 &` 
+
+- visit dashboard at `<ip addr>:8080` 
+  
+- End result:
+  ![alt text](./rocketmq-raftcluster.png)
+
+#### Clusters
+
+- Basic Cluster: Master-Slave setup
+  - refer to `<rocketmq release src>/conf/2m-2s-asyn/` dir
+  - Master answering clients, Slave backup data. 
+  - But slave cannot automatically become master. no election
+
+- RocketMQ Dledger Cluster (Based on Raft)
+  - refer to `<rocketmq release src>/conf/dledger/`
+  - just like the kafka cluster (kraft)
+  - any node died, a new master will be elected. 
+  - Raft principle is voting mechanism that solves the `split brain` problem.
+
+#### RocketMQ main components:
+
+![alt text](./rocketmq-components.png)
+
+- nameServer, the brain of the RocketMQ, performs discovery and routing
+- broker, core of rocketmq, stores/transmit/query messages
+- clients (producer consumer)
+- testing the components: `tools.sh org.apache.rocketmq.example.quickstart.Producer`
+- Message Transmission just like Kafka, but performance better, for example, when Kafka has too many topics, message throughput will drop, but RocketMQ fares much better when there are many topics.  why? we cover in later topics
+
+![alt text](image-2.png)
+
 
 ## 深入理解网络通信和TCPIP协议
 - OSI seven vs TCP IP model
