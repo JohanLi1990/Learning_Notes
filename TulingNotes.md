@@ -56,6 +56,18 @@
       - [Getting Started](#getting-started)
       - [Clusters](#clusters)
       - [RocketMQ main components:](#rocketmq-main-components)
+    - [RocketMQ客户端编程模型](#rocketmq客户端编程模型)
+      - [Rocket MQ Clinet basic process](#rocket-mq-clinet-basic-process)
+      - [Message Confirmation (消息确认机制)](#message-confirmation-消息确认机制)
+      - [Message Broadcasting](#message-broadcasting)
+      - [Message filtering](#message-filtering)
+      - [**ORDERED MESSAGING**](#ordered-messaging)
+      - [Delayed Messaging](#delayed-messaging)
+      - [Batch Messaging](#batch-messaging)
+      - [**MESSAGE Transactions**](#message-transactions)
+      - [ACL](#acl)
+    - [Spring Boot + RocketMQ integration](#spring-boot--rocketmq-integration)
+    - [RocketMQ客户端注意事项](#rocketmq客户端注意事项)
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
@@ -1561,6 +1573,199 @@ Steps based on creating a **DLedger cluster** with leader election mechanism
 - Message Transmission just like Kafka, but performance better, for example, when Kafka has too many topics, message throughput will drop, but RocketMQ fares much better when there are many topics.  why? we cover in later topics
 
 ![alt text](image-2.png)
+
+### RocketMQ客户端编程模型
+
+#### Rocket MQ Clinet basic process
+
+1. create producer, with a producer group name
+2. assign `NameServer`
+3. run producer.
+4. create message, assign `Topic`, `Tag`, and `MessageBody`
+5. send message
+6. terminate producer, release resources
+7. create Consumer
+8. assign nameServer
+9. subscribe to Topic and Tag
+10. assign call back function
+11. run consumer, which will be in the loop waiting to handle messages.
+
+#### Message Confirmation (消息确认机制)
+
+**From Producer Side**
+1. One way send, Don't care if the consumer receive.  i.e. `producer.sendOneway(message)`
+2. Sync send, blocking, wait for broker to confirm, i.e. `SendResult sendResult = producer.send(msg);`
+  ```java
+    public enum SendStatus {
+    SEND_OK,
+    FLUSH_DISK_TIMEOUT,
+    FLUSH_SLAVE_TIMEOUT,
+    SLAVE_NOT_AVAILABLE,
+    }
+  ```
+
+3. Async send
+
+  ```java
+  producer.send(msg, new SendCallback() {
+  @Override
+  public void onSuccess(SendResult sendResult) {
+  countDownLatch.countDown();
+  System.out.printf("%-10d OK %s %n", index, sendResult.getMsgId());
+  }
+  @Override
+  public void onException(Throwable e) {
+  countDownLatch.countDown();
+  System.out.printf("%-10d Exception %s %n", index, e);
+  e.printStackTrace();
+  }
+  });
+
+  ```
+
+**From Consumer Side**
+
+4. Return consumption status to broker.
+```java
+consumer.registerMessageListener(new MessageListenerConcurrently() {
+@Override
+public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> msgs, ConsumeConcurrentlyContext
+context) {
+System.out.printf("%s Receive New Messages: %s %n", Thread.currentThread().getName(), msgs);
+return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+}
+});
+```
+
+**Retries**
+
+5. Broker will only try send to one consumer 16 times max, if it cannot properly handle the message, messages will be sent to DLQ.
+6. For retries, messages have its own retires queue. 
+
+
+**History**
+7. Consumers could also check past events, by using 
+   ```java
+    public enum ConsumeFromWhere {
+    CONSUME_FROM_LAST_OFFSET, //从对列的最后一条消息开始消费
+    CONSUME_FROM_FIRST_OFFSET, //从对列的第一条消息开始消费
+    CONSUME_FROM_TIMESTAMP; //从某一个时间点开始重新消费
+    }
+   ```
+
+#### Message Broadcasting
+
+`consumer.setMessageModel(MessageModel.BROADCASTING)` all consumers will process the message once. 
+
+**Note** offset in this case is maintained at consumer side, not broker side. If consumer lost its offset, it will not be able to fetch past broadcasted messages.
+
+#### Message filtering
+
+Filtering by tags. i.e. `consumer.subscribe("TagFilterTest", "TagA");`
+Filtering by SQL selector
+```java
+  consumer.subscribe("SqlFilterTest",
+  MessageSelector.bySql("(TAGS is not null and TAGS in ('TagA', 'TagB'))" +
+  "and (a is not null and a between 0 and 3)"));
+```
+Note, RocketMQ is using `ANTLR` engine to analyse SQL language. 
+
+#### **ORDERED MESSAGING**
+
+You need both consumer and producer to make this happen:
+```java
+  for (int i = 0; i < 10; i++) {
+    int orderId = i;
+    for (int j = 0; j <= 5; j++) {
+      Message msg = new Message(
+        "OrderTopicTest",
+        "order_" + orderId,
+        "KEY" + orderId,
+        ("order_" + orderId + " step " + j).getBytes(RemotingHelper.DEFAULT_CHARSET)
+      );
+
+      SendResult sendResult = producer.send(msg, new MessageQueueSelector() {
+        @Override
+        public MessageQueue select(List<MessageQueue> mqs, Message msg, Object arg) {
+          Integer id = (Integer) arg;
+          int index = id % mqs.size();
+          return mqs.get(index);
+        }
+      }, orderId);
+
+      System.out.printf("%s%n", sendResult);
+    }
+  }
+
+  consumer.registerMessageListener(new MessageListenerOrderly() {
+    @Override
+    public ConsumeOrderlyStatus consumeMessage(List<MessageExt> msgs, ConsumeOrderlyContext context) {
+      context.setAutoCommit(true);
+      for (MessageExt msg : msgs) {
+        System.out.println("收到消息内容 " + new String(msg.getBody()));
+      }
+      return ConsumeOrderlyStatus.SUCCESS;
+    }
+  });
+
+```
+
+Send all message that are correlated into one MessageQueue, then you have FIFO.
+
+#### Delayed Messaging
+
+```java
+  // 指定固定的延迟级别
+  Message message = new Message(TOPIC, ("Hello scheduled message " + i).getBytes(StandardCharsets.UTF_8));
+  message.setDelayTimeLevel(3); //10秒之后发送
+  // 指定消息发送时间
+  Message message = new Message(TOPIC, ("Hello scheduled message " + i).getBytes(StandardCharsets.UTF_8));
+  message.setDeliverTimeMs(System.currentTimeMillis() + 10_000L); //指定10秒之后的时间点
+```
+
+messageDelayLevel is in config. 
+
+#### Batch Messaging
+
+checkout `ListSplitter`
+
+#### **MESSAGE Transactions**
+
+Implemented in a 2 phase commit ways.
+
+![alt text](image-rocketmq-transaction.png)
+
+
+You have to use `TransactionMQProducer` and `TransactionListener`, which is used to inform broker whether we should `commit` or `rollback`. 
+
+The topic that producer send the half messages to is called `RMQ_SYS_TRANS_HALF_TOPIC`, invisiable to consumers. 
+
+#### ACL
+
+perm, 2 no r no w, 4 r but no w, 6 yes r yes w
+also you can use plain_acl.yaml to define username password.
+
+### Spring Boot + RocketMQ integration
+
+maven dependencies could be pain in the ass. checkout `SpringBoot-rocketmq`
+Key classes:
+1. `RocketMQTemplate`
+2. Push Consumer: `RocketMQMessageListenerContainerRegistrar`, `DefaultRocketMQListenerContainer`
+3. Pull Consumer: `RocketMQAutoConfiguration` -> `DefaultLitePullConsumer`
+
+### RocketMQ客户端注意事项
+
+prefer keys to msgId,
+prefer tags as filtering method.
+
+One app try to use one topic, subtopic use tags.
+
+**Idempotency**: almost exactly once, (most cases exactly once); have to relie on a business key that is unique, instead of a RocketMQ feature.
+
+Retry => maximum 16 times -> after that DLQ.
+
+DLQ requires manual intervention
+
 
 
 ## 深入理解网络通信和TCPIP协议
