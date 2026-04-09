@@ -51,12 +51,12 @@
     - [Kafka 日志索引详解](#kafka-日志索引详解)
     - [Kafka 功能扩展](#kafka-功能扩展)
   - [RocketMQ](#rocketmq)
-    - [RocketMQ快速实战以及核心概念详解](#rocketmq快速实战以及核心概念详解)
+    - [1.  RocketMQ快速实战以及核心概念详解](#1--rocketmq快速实战以及核心概念详解)
       - [Introductions](#introductions)
       - [Getting Started](#getting-started)
       - [Clusters](#clusters)
       - [RocketMQ main components:](#rocketmq-main-components)
-    - [RocketMQ客户端编程模型](#rocketmq客户端编程模型)
+    - [2. RocketMQ客户端编程模型](#2-rocketmq客户端编程模型)
       - [Rocket MQ Clinet basic process](#rocket-mq-clinet-basic-process)
       - [Message Confirmation (消息确认机制)](#message-confirmation-消息确认机制)
       - [Message Broadcasting](#message-broadcasting)
@@ -66,8 +66,17 @@
       - [Batch Messaging](#batch-messaging)
       - [**MESSAGE Transactions**](#message-transactions)
       - [ACL](#acl)
-    - [Spring Boot + RocketMQ integration](#spring-boot--rocketmq-integration)
-    - [RocketMQ客户端注意事项](#rocketmq客户端注意事项)
+      - [Spring Boot + RocketMQ integration](#spring-boot--rocketmq-integration)
+      - [RocketMQ客户端注意事项](#rocketmq客户端注意事项)
+    - [3. RocketMQ核心源码解读](#3-rocketmq核心源码解读)
+      - [Setting up IDE.](#setting-up-ide)
+      - [NameServer booting process](#nameserver-booting-process)
+      - [Broker boot process](#broker-boot-process)
+  - [SPI mechanimsm](#spi-mechanimsm)
+    - [Why we need it?](#why-we-need-it)
+    - [Core Idea](#core-idea)
+    - [How SPI Works](#how-spi-works)
+    - [Why META-INF/services](#why-meta-infservices)
   - [深入理解网络通信和TCPIP协议](#深入理解网络通信和tcpip协议)
   - [BIO实战、NIO编程与直接内存、零拷贝深入辨析](#bio实战nio编程与直接内存零拷贝深入辨析)
   - [深入Linux 内核理解epoll](#深入linux-内核理解epoll)
@@ -1476,7 +1485,7 @@ Test-NetConnection 192.168.10.31 -Port 9092
 
 ## RocketMQ
 
-### RocketMQ快速实战以及核心概念详解
+### 1.  RocketMQ快速实战以及核心概念详解
 
 #### Introductions
 
@@ -1574,7 +1583,7 @@ Steps based on creating a **DLedger cluster** with leader election mechanism
 
 ![alt text](image-2.png)
 
-### RocketMQ客户端编程模型
+### 2. RocketMQ客户端编程模型
 
 #### Rocket MQ Clinet basic process
 
@@ -1745,7 +1754,7 @@ The topic that producer send the half messages to is called `RMQ_SYS_TRANS_HALF_
 perm, 2 no r no w, 4 r but no w, 6 yes r yes w
 also you can use plain_acl.yaml to define username password.
 
-### Spring Boot + RocketMQ integration
+#### Spring Boot + RocketMQ integration
 
 maven dependencies could be pain in the ass. checkout `SpringBoot-rocketmq`
 Key classes:
@@ -1753,7 +1762,7 @@ Key classes:
 2. Push Consumer: `RocketMQMessageListenerContainerRegistrar`, `DefaultRocketMQListenerContainer`
 3. Pull Consumer: `RocketMQAutoConfiguration` -> `DefaultLitePullConsumer`
 
-### RocketMQ客户端注意事项
+#### RocketMQ客户端注意事项
 
 prefer keys to msgId,
 prefer tags as filtering method.
@@ -1765,6 +1774,137 @@ One app try to use one topic, subtopic use tags.
 Retry => maximum 16 times -> after that DLQ.
 
 DLQ requires manual intervention
+
+
+### 3. RocketMQ核心源码解读
+
+#### Setting up IDE.
+- **You will need the rocketmq binary**, download the binary, and set the `ROCKETMQ_HOME` env variable to point to your binary folder
+- And then import the project, and now you can at least start nameserver.
+- `clean install -Dmaven.test.skip=true`
+
+#### NameServer booting process
+
+acting like a service registrar.
+
+![alt text](image-NameServer.png)
+
+NameServer -> `NamesrvStartup` -> `NamesrvController`
+
+**MVC philosophy behind**
+
+*Controller reacts to request, Managers and their services process the request, in memory tables store information*
+
+**Why does it need both NettyRemotingServer and NettyRemotingClient**
+- `NettyRemotingServer` handles broker heartbeats, maintain broker metadata in a passive fashion.
+- But sometimes `NameServer` may need to trigger `outbound RPC`
+  - `NameServer` may call broker APIs
+  - fetch/update metadata
+  - trigger actions
+- Symmetric remoting design, in RocketMQ every major componetnhave both server client
+  - Broker, Client, NameServier
+  - This simplifies things: code reuse, protocol handling
+- Future extensibility / admin operations
+  - allow NameServer to interact with brokers directly
+  - support tooling / admin features
+
+#### Broker boot process
+
+1. Core of RocketMQ, handles all message storage and forwarding.
+2. Important source code.
+   `BrokerStartup` -> `BrokerController`
+
+3. Import components:
+   
+```java
+  this.messageStore.start();//启动核心的消息存储组件
+  this.timerMessageStore.start(); //时间轮服务，主要是处理指定时间点的延迟消息。
+
+  this.remotingServer.start(); //Netty服务端
+  this.fastRemotingServer.start(); //启动另一个Netty服务端。
+
+  this.brokerOuterAPI.start();//启动客户端，往外发请求
+
+  this.topicRouteInfoManager.start(); //管理Topic路由信息
+
+  BrokerController.this.registerBrokerAll： //向所有依次NameServer注册心跳。
+
+  this.brokerStatsManager.start();//服务状态
+```
+
+4. Architecture
+
+![alt text](image-RocketMQ-Broker.png)
+
+There are `RemotingServer` and `FastRemotingServer`
+They are similar, but `FastRemotingServer` is for important messages.
+- `producer.setSendMessageWithVIPChannel(true)`
+- `consumer.setVipChannelEnabled(true)`
+
+
+## SPI mechanimsm
+
+### Why we need it?
+
+Allow frameworks to be extensible without modifying their code
+
+Framework defines interface
+Users provide implementations
+Implementations are discovered at runtime
+
+### Core Idea
+Instead of doing `Framework → Concrete class (hardcoded ❌)`
+we do `Framework → Interface → Runtime loads implementation (via SPI) 🔥`
+
+### How SPI Works
+
+1. Define interface: `public interface Compressor {}`
+
+2. Provide implementations: `public class Lz4Compressor implements Compressor {}`
+
+3. **Register via file**
+   
+   `META-INF/services/com.xxx.Compressor`
+
+4. Load at runtime: `ServiceLoader.load(Compressor.class)`
+
+### Why META-INF/services
+- JDK conventions (hardcoded in ServiceLoader)
+
+- ServiceLoader scans:
+
+  `META-INF/services/<fully-qualified-interface-name>`
+
+5. How does Maven/Gradle handle those special implementations?
+
+  They only:
+
+  Copy src/main/resources/**
+  Package into JAR
+
+  So: `src/main/resources/META-INF/services/... → ends up in JAR`
+
+
+👉 SPI works because of JVM classpath scanning, not build tools
+
+Runtime behavior
+- JVM scans all JARs in classpath
+- Reads all matching META-INF/services/... files
+- Combines implementations
+
+👉 Enables multi-plugin system
+
+🔹 Real-world examples
+JDBC → database drivers
+RocketMQ → compression, hooks, extensions
+SOAP/JAX-WS → handlers, transports
+
+| Feature         | SPI       | Spring DI   |
+| --------------- | --------- | ----------- |
+| Level           | Framework | Application |
+| Discovery       | Classpath | Container   |
+| Dynamic plugins | ✅         | ⚠️          |
+| Lifecycle mgmt  | ❌         | ✅           |
 
 
 
