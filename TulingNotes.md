@@ -72,6 +72,11 @@
       - [Setting up IDE.](#setting-up-ide)
       - [NameServer booting process](#nameserver-booting-process)
       - [Broker boot process](#broker-boot-process)
+      - [Netty service regsitration](#netty-service-regsitration)
+      - [Broker heart beat registrations](#broker-heart-beat-registrations)
+      - [Producer Send Messages](#producer-send-messages)
+      - [Consumer pulling messages](#consumer-pulling-messages)
+      - [Client side load balancing summary](#client-side-load-balancing-summary)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -1807,6 +1812,7 @@ NameServer -> `NamesrvStartup` -> `NamesrvController`
 - Future extensibility / admin operations
   - allow NameServer to interact with brokers directly
   - support tooling / admin features
+- **in RocketMQ 5.0+** we need the `NettyRemotingClient` for `NameSrvController` to auto promote slave broker instance to master instance in a master-slave setups. (previously no such mechanism exists)
 
 #### Broker boot process
 
@@ -1841,6 +1847,161 @@ They are similar, but `FastRemotingServer` is for important messages.
 - `producer.setSendMessageWithVIPChannel(true)`
 - `consumer.setVipChannelEnabled(true)`
 
+#### Netty service regsitration
+
+RocketMQ: RPC based on Netty.
+
+```java
+protected ChannelPipeline configChannel(SocketChannel ch) {
+        return ch.pipeline()
+            .addLast(defaultEventExecutorGroup, HANDSHAKE_HANDLER_NAME, new HandshakeHandler())
+            .addLast(defaultEventExecutorGroup,
+                encoder, //请求编码器
+                new NettyDecoder(), //请求解码器
+                distributionHandler, //请求计数器
+                new IdleStateHandler(0, 0,
+                    nettyServerConfig.getServerChannelMaxIdleTimeSeconds()), //心跳管理器
+                connectionManageHandler, //连接管理器
+                serverHandler //核心的业务处理器
+            );
+    }
+```
+
+1. How to Handle Request?
+
+  Every request payload is created into `RemotingCommand` (with a code)
+
+  Each code corresponds to a Processor, i.e. `Map<Code, Pair<NettyRequstProcessor, ExecutorService>`
+
+  `BrokerController.registerProcessor()`
+
+2. How to handle Response?
+   
+   Netty Server stores results in responseTable, when NettyClient send response command, it will take from responseTable, so no-blocking on Channel, increase throughput. (`NettyRemotingAbstract#invokeSyncImpl`)
+
+  `NettyRemotingServer` will also scan responseTable for obsolete response. 
+
+![alt text](image-3.png)
+
+#### Broker heart beat registrations
+
+1. Key Source Code:
+  
+  - `BrokerController.registerBrokerAll`
+  - NameServer will maintain broker info in `RouteInfoManager` (`RouteInfoManager#registerBroker`)
+  - NameSerer will also scan inactive brokers: `NamesrvController.initialize -> startScheduleService`
+
+2. Simplified Service Registration/Discovery
+   
+   - So why not zooKeeper or Nacos? 3rd party libs, not good for versioning.
+   - It is also **more** of a business decision, we **dont** require strong consistency.
+   - With the heartbeats mechanism most NameServer will be eventually consistent.
+   - ALso we dont need all NameServer to work, one functioning NameServer with upToDate broker info is enough for us to send message
+
+#### Producer Send Messages
+
+- Two kinds of producer : `DefaultMQProducer`  + `TransactionMQProducer`
+- two phases of using it: `start` + `send`
+
+1. Prouducer Core booting process
+   
+   `DefaultMQProducer` -> `DefaultMQProducerImpl#start` -> `mQClientFactory` -> initiate whole bunch of imporatnt services.
+
+   `mQClientFactory` is important because it is responsible of producing all clients, including Producer and consumers. 
+
+   ![alt text](image-4.png)
+
+2. Producer how to send messages.
+
+  `DefaultProducer` -> `DefaultMQProducerImpl` -> `tryToFindTopicPublishInfo` (to get Broker list) -> `selectOneMessageQueue` -> `sendKernelImpl`
+
+  Producer will maintain a `topicPublishInfoTable` and `DefaultMqProducer` will try to make sure the cache is latest, but if NameServer is down then `DefaultMQProducer` will still try to find and send message to the broker. As long as can find broker, message will be sent. 
+
+  Producer will use round robin to select messageQueue `selectOneMessageQueue`
+  However, if we failed to send to one broker, we are going to skip the mq that belongs to the failed broker. 
+
+  If we pass `Selector` to producer, producer will do `DefaultMQProducerImpl#sendSelectImpl` and let the customized selector choose the mq to send to.
+
+#### Consumer pulling messages
+
+- Pull and Push Consumer
+- Broadcasting and Clustering mode.
+- Reblancing, how consumer bind to MQ, how different consumption strategy is implemented.
+- For Push consumer what is the difference between `MessageListenerConcurrently` and `MessageListenerOrderly`
+
+1. Key Source Code.
+
+  `DefaultMQPushConsumer` -> subscribe -> registerMessageListern -> `DefaultMQPushConsumerImpl#start`
+
+  ![alt text](image-5.png)
+
+
+2. Diff between Clustering and Broadcasting mode in handling `Offset`
+
+  ```java
+      switch (this.defaultMQPushConsumer.getMessageModel()) {
+          case BROADCASTING:
+              this.offsetStore = new LocalFileOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+              break;
+          case CLUSTERING:
+              this.offsetStore = new RemoteBrokerOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+              break;
+  ```
+  
+  one is local file store with consumer, the other is remote store with broker.
+  Eventually the offset is maintained via a `offsetTable` cache.
+
+3. How does Consumer bind with a MessageQeue
+
+  Each MessageQueue can be consumed by One Consumer.
+  A consumer can subscribe to multiple messageQueue, but each message queue only corresponds to one consumer from one ConsumerGroup. Why?
+
+  Because Broker manages MessageQueue offset according to consumerGroup. (i.e. for each MessageQueue, one ConsumerGroup : One Offset)
+
+  if a MessageQueue has multiple Consumers from the same ConsumerGroup, then if they have different offsets, how do we manage? whose offset do we use?
+
+  `RebalanceService#doRebalance`
+   
+  ```java
+    this.rebalanceImpl.setMessageModel(this.defaultMQPushConsumer.getMessageModel());
+    //Consumer负载均衡策略
+    this.rebalanceImpl.setAllocateMessageQueueStrategy(this.defaultMQPushConsumer.getAllocateMessageQueueStrategy());
+
+  ```
+
+  Key strategies: `AllocateMessageQueueAveragely`, `AllocateMessageQueueByMachineRoom`
+
+4. Orderly Consuming and Concurrently consuming
+
+  invoked via `defaultMQPushConsumerImpl # pullCallBack`
+
+  Compare `ConsumerMessageConcurrentlyService#submitConsumeRequest` and `ConsumeMessageOrderlyService#submitConsumeRequest`,
+
+  the `ConsumeMessageOrderlyService#submitConsumeRequest` nused a lock to **lock** the entire MQ; only when it is done, then it proceed to consume the next available batch of messages. This will ensure FIFO ordering.
+
+5. How does messages gets fetched by Consumer?
+
+  `DefaultMQPushConsumerImpl#start` -> `mqClinetFactory.start` ->  `pullMessageService#start` -> `defaultMQPushConsumerImpl # pullCallBack`
+
+#### Client side load balancing summary
+
+1. Producer rebalancing
+   
+   Producer does round robin on Borker and Message Queue.
+   If producer failed to send message to a broker, it will try to avoid it for the next round.
+
+
+   ![alt text](image-6.png)
+
+2. Consumer rebalancing
+
+  - Clustering mode: every time number of consumers change, we will have to rebalance, `AllocateMessageQueueStrategy`
+  
+  ![alt text](image-7.png)
+  
+  - BroadCasting mode
+
+    All consumers assigned to all mq.
 
 ## SPI mechanimsm
 
