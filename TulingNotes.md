@@ -77,6 +77,7 @@
       - [Producer Send Messages](#producer-send-messages)
       - [Consumer pulling messages](#consumer-pulling-messages)
       - [Client side load balancing summary](#client-side-load-balancing-summary)
+      - [Rocket MQ Persistence.](#rocket-mq-persistence)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2003,6 +2004,45 @@ protected ChannelPipeline configChannel(SocketChannel ch) {
 
     All consumers assigned to all mq.
 
+#### Rocket MQ Persistence.
+
+1. File Store Architecture:
+  - CommitLog: message metadata, Every message will be saved to CommitLog folder,
+  - ConsumerQueue: Register MessageQueue progress by ConsumerGroup
+  - IndexFile: a way to query messages via key.
+  - checkpoint
+  - config/*.json
+  - abort
+  
+  ![alt text](image-8.png)
+
+2. Write via commitLog
+
+  `CommitLog#asyncPutMessage`
+  
+  - use `topicQueueLock` to gurantee FIFO for a single MessageQueue
+  - `putMessageLock` can be `SpinLock` (constant CAS, high CPU usage, faster) or `ReentrantLock` (one CAS then thread yield, wait for notify, lower CPU slight slower, good for high concurrency scenarios)
+  - CommitLog is using sequential write: `result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);`
+  - Message written to ByteBuffer, in memory, but not in disk yet, so finally, at the end of `asyncPutMessage`-> `handleDiskFlushAndHA`
+
+3. File flushing (sync vs async)
+
+  - simple config via `flushDiskType` in broker config. (`SYNC_FLUSH` and `ASYNC_FLUSH`)
+  - Do i flush for every (batch) messages ? or do I do flushing every now and then?
+  - `CommitLog#handleDiskflush` (2 way buffer)
+  
+    ![alt text](image-9.png)
+
+  - Even though it is `SYNC_FLUSH` we still sleep for 10ms -> this is engineering for performance
+  - used `MappedByteBuffer # force` -> equivalent to linux `fsync`
+  - For `ASYNC_FLUSH` it is do similar things like `SYNC_FLUSH` (flush every few milliseconds); difference is that for `ASYNC_FLUSH` it is running `commitRealTimeService` in a different thread, so it is non-blocking
+
+4. Commit Log Master slave replication
+
+  - `CommitLog.handleDiskFlushandHA`
+  - `DefaultHAService#groupTrasnferService` -> uses 2-way buffer, which is a good pattern to handle high concurrency 
+  - `DefaultHAService#start` -> `acceptSocketServce.start` kicks start a **JAVA NIO** process, instead of reusing Netty Framework; this shows that rocketMQ devs are going for pure performance here.
+ 
 ## SPI mechanimsm
 
 ### Why we need it?
