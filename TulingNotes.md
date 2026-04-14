@@ -78,6 +78,10 @@
       - [Consumer pulling messages](#consumer-pulling-messages)
       - [Client side load balancing summary](#client-side-load-balancing-summary)
       - [Rocket MQ Persistence.](#rocket-mq-persistence)
+      - [Dispatching ConsumeQueue and IndexFile](#dispatching-consumequeue-and-indexfile)
+      - [Obsolete files delte](#obsolete-files-delte)
+      - [Rocket MQ index datastructure](#rocket-mq-index-datastructure)
+      - [Delayed Messaging](#delayed-messaging-1)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2042,7 +2046,82 @@ protected ChannelPipeline configChannel(SocketChannel ch) {
   - `CommitLog.handleDiskFlushandHA`
   - `DefaultHAService#groupTrasnferService` -> uses 2-way buffer, which is a good pattern to handle high concurrency 
   - `DefaultHAService#start` -> `acceptSocketServce.start` kicks start a **JAVA NIO** process, instead of reusing Netty Framework; this shows that rocketMQ devs are going for pure performance here.
- 
+
+#### Dispatching ConsumeQueue and IndexFile
+
+1. Objective
+
+Use case: in rocketmq, everything in in one big commit log, which is greate for sequential disk write.
+But, if everything is in one file, how do consumers read messages efficiently?
+e.g. "Give me messages of Topic A, Queue 3, offset 100"
+
+CommitLog is just a giant byte stream, it has no direct mapping `topic, queueu, offset) -> position`.
+if you don't build ConsumeQueue and IndexFile, it will have to scan sequently (`O(N)`) -> Catastrophy
+
+2. ConsumeQueue : logical index per queue.
+
+  `ConsumeQueue[logicalOffset] → commitLogOffset → read message`
+
+  But what if you want:
+
+  “Find message by key (e.g. orderId, transactionId)”
+
+3. IndexFile: offers key based lookup `key → commitLogOffset`
+
+  So instead of `scan all messages -> match key`, we can do
+
+  `key -> IndexFile -> commitLogOffset -> message`
+
+4 **why both exists** ?
+
+| Structure    | Purpose            | Access Pattern  |
+| ------------ | ------------------ | --------------- |
+| CommitLog    | write (sequential) | append-only     |
+| ConsumeQueue | consume by offset  | sequential read |
+| IndexFile    | query by key       | random lookup   |
+
+**`DefaultMessageStore # reputMessageService`**
+
+#### Obsolete files delte
+
+`DefaultMessageStore#addScheduleTask`
+`DefaultMessageStore#cleanFilesPeriodically`
+`DefaultMessageStore.this.cleanQueueFilesPeriodically()`
+
+RccketMQ will only keep 72 hours of data.
+
+#### Rocket MQ index datastructure
+
+kinda like FIX mesage: [loulan blog](https://blog.csdn.net/roykingw/article/details/120086520)
+
+#### Delayed Messaging
+
+- Fixed level (18 levels) delayed messaging
+- Pre-assigned deliver time messaging.
+
+1. Message pre-Transformation
+
+  `HooksUtils # handleScheduleMessage` transform normal message to `TimerMessage`or `DelayLevelMessage`
+
+2. For delay level message, they will be written to predefined system topic: `SCHEDULE_TOPIC_XXX`. Under this topic, there are 18 MQ, corresponding to 18 Delay levels.
+
+When time is up, `scheduleMessageService` of `BrokerController` will resend the messages from the system topic mq, to the real topic mq. `executeOnTimeup` is run every second.
+
+![alt text](image-10.png)
+
+3. For time message, if it is not yet time, they will be puit under `RMQ_SYS_WHEEL_TIMER` toic.
+
+IT is using `timerMessageStore` (also from `BrokerController`)
+
+`timerMessageStore # initService`
+
+TimerWheel Algorithm (also used by `Quartz`, `xxlJob`)
+
+- a circular calender index, where each slots contains position information for messages that could expire.
+- TimerWheel slot = “for this time bucket, the latest timer-record position is X”
+- TimerLog record = one delayed message’s timer metadata, plus a pointer to the previous record in the same bucket
+- Therefore, multiple messages in one slot are represented as a linked list / chain in TimerLog, not as an in-slot array.
+
 ## SPI mechanimsm
 
 ### Why we need it?
