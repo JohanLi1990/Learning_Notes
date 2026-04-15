@@ -82,6 +82,8 @@
       - [Obsolete files delte](#obsolete-files-delte)
       - [Rocket MQ index datastructure](#rocket-mq-index-datastructure)
       - [Delayed Messaging](#delayed-messaging-1)
+      - [Long Polling](#long-polling)
+      - [RocketMQ zero copy and sequential Write (similar to Kafka)](#rocketmq-zero-copy-and-sequential-write-similar-to-kafka)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2121,6 +2123,62 @@ TimerWheel Algorithm (also used by `Quartz`, `xxlJob`)
 - TimerWheel slot = “for this time bucket, the latest timer-record position is X”
 - TimerLog record = one delayed message’s timer metadata, plus a pointer to the previous record in the same bucket
 - Therefore, multiple messages in one slot are represented as a linked list / chain in TimerLog, not as an in-slot array.
+
+#### Long Polling
+
+- Push and Pull in RocketMQ are actually implemented via Pull method. 
+- Under push mode, consumers gets message faster. But How? does it constantly "pull" the brokers? if so, it is wasteful.
+- Therefore the mechanism of Long Polling.
+- When Broker receives pull request from consumer, if no message yet, no need to respond
+- instead, it will cache the request. 
+- When producer eventually send the message that consumer is interested in, 
+- there will be one extra step to check if there is any existing request in the cache. 
+- if so, will take the request and respond accordingly to consumer.
+
+Entry Point: `PullmEssageProcessor#processRequest`, `PullRequestHoldService`
+
+**Note**: 
+- for longPolling to work properly, consumerTimeoutMillisWhenSuspend  >  brokerSuspendMaxTimeMillis, so brokers should **timeout first**
+- Otherwise if client gives up, and send new pull request, broker may still try to respond to old request -> wasted work /errors
+
+RocketMQ consumers always keep pulling; long polling just makes it infrequent and efficient, not continuous.
+
+#### RocketMQ zero copy and sequential Write (similar to Kafka)
+
+- RocketMQ -> `MappedFile`
+
+1. What is 刷盘？
+
+The action to **sync** data from PageCache to Disk, so that when there is sudden electricity outage, data is safe.
+
+![alt text](image-11.png)
+
+- Java `FileOutputStream`, `BufferedWriter` -> PageCache
+- RocketMQ `FileChannel.commit` -> PageCache.
+- PageCache is produced continously, but OS cannot always write to disk; therefore OS will writes to disk every now and then, e.g. when we shutdown pc.
+- check PageCache status in linux via `cat /proc/meminfo`
+- in order to **not lose data at all**, OS provides this `fsync` command to application, so that they can force `sync` pageCache to disk.
+- In RocketMQ, see above for `SYNC_FLUSH` and `ASYNC_FLUSH`
+
+2. Zero copy
+
+- MMAP mechanism -> `FileChannel#map`,
+- Compare the difference between `HeapByteBuffer` and `DirectBuffer`, we can see that `DirectByteBuffer` is MMAP, because it only has the metada (offset, size, cap) of the real data, not the real `byte[]`, unlike `HeapByteBuffer`
+- Fit for smaller filesize (< 2G), you can use `lsof -p {PID}` to check the files (including mem mapped files) opened by certain process
+
+- **sendfile**: `FileChannel#transferTo`
+- Only copies a FD that contains file position and lenght.
+- Real data are handled by DMA, which transfer from pageCache directly
+  
+  ![alt text](image-12.png)
+
+
+- check the manual `man 2 sendfile`
+- `sendfile` completes the copy within `kernel mode`, so is very convenient for large data transfer.
+
+- mmap allows user to modify data, so mmap is slower, but has more flexibility.
+- RocketMQ use mmap more, Kafka use sendfile more.
+
 
 ## SPI mechanimsm
 
