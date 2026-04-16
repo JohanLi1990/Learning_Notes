@@ -84,6 +84,8 @@
       - [Delayed Messaging](#delayed-messaging-1)
       - [Long Polling](#long-polling)
       - [RocketMQ zero copy and sequential Write (similar to Kafka)](#rocketmq-zero-copy-and-sequential-write-similar-to-kafka)
+    - [4. RocketMQ advanced feature](#4-rocketmq-advanced-feature)
+      - [DLedge: Data consistency issues in a Highly available system](#dledge-data-consistency-issues-in-a-highly-available-system)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2178,6 +2180,27 @@ The action to **sync** data from PageCache to Disk, so that when there is sudden
 
 - mmap allows user to modify data, so mmap is slower, but has more flexibility.
 - RocketMQ use mmap more, Kafka use sendfile more.
+
+### 4. RocketMQ advanced feature
+
+#### DLedge: Data consistency issues in a Highly available system
+
+in a cluster of servers, we want to read data **correctly** from any nodes in a cluster. That is consistency.
+- Gossip
+- Raft
+
+Refer to article **Search of an Understandable Consensus Algorithm**
+
+1. How does Raft works: http://thesecretlivesofdata.com/raft/
+
+  ![alt text](image-13.png)
+   
+   Important note: the election of leader depends heavily on the **election timeout** of different candidates; the **election timeout** is randomized for different node; 
+  
+2. Leader in charge of writes for the cluster. (2 phase commits)
+   
+   Log first -> State machine next.
+
 
 
 ## SPI mechanimsm
