@@ -86,6 +86,8 @@
       - [RocketMQ zero copy and sequential Write (similar to Kafka)](#rocketmq-zero-copy-and-sequential-write-similar-to-kafka)
     - [4. RocketMQ advanced feature](#4-rocketmq-advanced-feature)
       - [DLedge: Data consistency issues in a Highly available system](#dledge-data-consistency-issues-in-a-highly-available-system)
+      - [HA master slave cluster (not dledger) that supports master slave auto-switch](#ha-master-slave-cluster-not-dledger-that-supports-master-slave-auto-switch)
+      - [RocketMQ BrokerContinaer](#rocketmq-brokercontinaer)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2201,7 +2203,28 @@ Refer to article **Search of an Understandable Consensus Algorithm**
    
    Log first -> State machine next.
 
+3. Raft source code in RocketMQ: 
 
+  - `io.openmessaging.storage.dledger.MemberState`
+  - `DLedgerEntryPusher`
+  - `DLedgerEntry`
+  - `io.openmessaging.storage.dledger.statemachine.StateMachine`
+
+#### HA master slave cluster (not dledger) that supports master slave auto-switch
+
+![alt text](image-14.png)
+
+official docs on: [Auto fail over](https://rocketmq.apache.org/zh/docs/deploymentOperations/03autofailover/)
+
+#### RocketMQ BrokerContinaer 
+
+- For RocketMQ 4.x version, one broker -> one process. 
+- However master broker process does more work, whereas slave broker process does less and are mostly idle.
+- so why do we even have two processes? why not just combine them into one?
+- therefore, **BrokerContainer** is invented to host multiple brokers
+- `bin/mqbrokercontainer -c broker-container.conf`
+
+![alt text](image-15.png)
 
 ## SPI mechanimsm
 

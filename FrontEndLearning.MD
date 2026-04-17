@@ -1586,14 +1586,22 @@ After you run it:
 
 3. **When is it acceptable to use shallowEqual, and what’s the tradeoff?**
 
-  if the combined selector is not huge; shallow compare incurs overhead, and if the combined object is huge, it could waste time.
+  if the combined selector is not huge;
+  
+  shallow compare incurs overhead, and if the combined object is huge, it could waste time.
+  
   you intentionally return a small object
+  
   fields are primitives or stable references
+  
   readability > micro-optimizations
 
   Tradeoffs:
+  
   shallow comparison cost on every store update
+  
   hides selector design issues
+  
   can mask accidental object recreation
 
 ### 3.4 Async the Redux way
