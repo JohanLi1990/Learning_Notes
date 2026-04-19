@@ -88,6 +88,8 @@
       - [DLedge: Data consistency issues in a Highly available system](#dledge-data-consistency-issues-in-a-highly-available-system)
       - [HA master slave cluster (not dledger) that supports master slave auto-switch](#ha-master-slave-cluster-not-dledger-that-supports-master-slave-auto-switch)
       - [RocketMQ BrokerContinaer](#rocketmq-brokercontinaer)
+    - [5. RocketMQ常见问题梳理](#5-rocketmq常见问题梳理)
+      - [Prevent (as much as possible) message lost](#prevent-as-much-as-possible-message-lost)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2225,6 +2227,63 @@ official docs on: [Auto fail over](https://rocketmq.apache.org/zh/docs/deploymen
 - `bin/mqbrokercontainer -c broker-container.conf`
 
 ![alt text](image-15.png)
+
+
+### 5. RocketMQ常见问题梳理
+
+#### Prevent (as much as possible) message lost
+
+![alt text](image-16.png)
+
+step 1 2 4 are via internet, and therefore could lose message.
+step 3 is about disk flushing, if during disk flushing there is outage, then message will be lost.
+
+- Prevent Producer from losing message.
+  - `producer.sendOneway` -> low latency, but may lose message
+  - `SendResult sendResult = producer.send(msg, 20*1000)` -> safest, efficiency lowest. 
+  - `producer.send(msg,nnew SendCallback() {})` -> efficient and safe, but more burden on client side.
+
+- Rocket MQ Transactions mechanism (gurantee producer safe message delivery)
+
+  ![alt text](image-17.png)
+
+  2 phase commits; allows producer to rollback if local executions are not successful.
+
+  e.g. E-Commerce scenario
+
+  ![alt text](image-18.png)
+
+
+- Prevent Broker from losing message
+
+  after producer send messages to broker, how do we gurantee it does not lost?
+  The key is to make sure data in `PageCache` does not get lost.
+
+  `man 2 write`, `man 2 fsync`
+
+  `SYNC_FLUSH` (flush every 10 ms) vs `ASYNC_FLUSH` (flush in another thread, non-blocking)
+
+  Kafka has similar config settings, `log.flush.interval.messages`
+
+
+- Prevent Message lost during master slave synchronization.
+  - RocketMQ Normal cluster -> all writes must go to master first then slave, if master die, message might lost (but can ask producer to send again)
+  - Kafka cluster, if leader partition dies, follower partition will elect a new one, message from old leader will be lost forever.
+  - RocketMQ Dledger cluster: **prioritize** consistency within the cluster, so message might get lost if there are no consensu within the cluster. But that is okay, we can tell producer that send was not successful so send again.
+
+- Prevent consumers from losing messages 
+  - Consumer has to give feed back to Broker after consuming messages, if there is no such response Broker will send again.
+
+- If all MQ services are dead, how to make sure messages are not lost?
+  - Downgraded mode (Redis cache). producer sends messages to Redis Cache instead of MQ services.
+  ![alt text](image-19.png)
+
+- Conclusion
+  - There are no perfect solution to prevent message lost
+  - you want 0 message lost, that means cluster has to do more, and throughput cannot be very high. 
+  - so we need to choose a plan according to business needs.
+
+  ![alt text](image-20.png)
 
 ## SPI mechanimsm
 
