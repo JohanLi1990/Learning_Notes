@@ -88,8 +88,10 @@
       - [DLedge: Data consistency issues in a Highly available system](#dledge-data-consistency-issues-in-a-highly-available-system)
       - [HA master slave cluster (not dledger) that supports master slave auto-switch](#ha-master-slave-cluster-not-dledger-that-supports-master-slave-auto-switch)
       - [RocketMQ BrokerContinaer](#rocketmq-brokercontinaer)
-    - [5. RocketMQ常见问题梳理](#5-rocketmq常见问题梳理)
+    - [5. RocketMQ/MQ常见问题梳理](#5-rocketmqmq常见问题梳理)
       - [Prevent (as much as possible) message lost](#prevent-as-much-as-possible-message-lost)
+      - [Ensure ordered consumption of message](#ensure-ordered-consumption-of-message)
+      - [Idempotency of message consumption](#idempotency-of-message-consumption)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2229,7 +2231,7 @@ official docs on: [Auto fail over](https://rocketmq.apache.org/zh/docs/deploymen
 ![alt text](image-15.png)
 
 
-### 5. RocketMQ常见问题梳理
+### 5. RocketMQ/MQ常见问题梳理
 
 #### Prevent (as much as possible) message lost
 
@@ -2284,6 +2286,29 @@ step 3 is about disk flushing, if during disk flushing there is outage, then mes
   - so we need to choose a plan according to business needs.
 
   ![alt text](image-20.png)
+
+#### Ensure ordered consumption of message
+
+- RocketMQ approach vs otheres
+  - 1. Producer put ordered messages into the same MessageQueue
+  - 2. Consumer polls message from one Message Queue at the time.
+  - For RocketMQ if one message failed to consume, by default we `SUSPEND_CURRENT_QUEUE_A_MOMENT`
+  - But same cannot be said for Kafka, and RabbitMQ, , for Kafka if message failed, we can choose not to commit the offset, and resend the message; for RabbitMQ there is a DLQ, cannot gurantee message is only consumed in order
+
+  ![alt text](image-21.png)
+
+#### Idempotency of message consumption
+
+Producer Side
+- RocketMQ assign a unique msgIdm we can use it to check if there is double deliver of message, this is in framework.
+- Kafka: there is a idempotence config, we can turn it on (exactly once): 
+  - PID -> sequence number
+  - when SN = SN + 1, Broker accept message, other wise if Sequence NUmber is too small, then we consider that message is already written, otherwise message is considered lost.
+
+Consumer Side:
+- RocketMQ could use messageId to make sure the message is only processed once. 
+- **But** in some use-cases (batch send, transactional send) messageId may not be reliable, i.e. for the same messages, there are different messageId.
+- Therefore we need a business related Id to amke sure message gets consumed only once.
 
 ## SPI mechanimsm
 
