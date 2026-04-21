@@ -92,6 +92,7 @@
       - [Prevent (as much as possible) message lost](#prevent-as-much-as-possible-message-lost)
       - [Ensure ordered consumption of message](#ensure-ordered-consumption-of-message)
       - [Idempotency of message consumption](#idempotency-of-message-consumption)
+      - [Manage the MQ backlog](#manage-the-mq-backlog)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2309,6 +2310,24 @@ Consumer Side:
 - RocketMQ could use messageId to make sure the message is only processed once. 
 - **But** in some use-cases (batch send, transactional send) messageId may not be reliable, i.e. for the same messages, there are different messageId.
 - Therefore we need a business related Id to amke sure message gets consumed only once.
+
+#### Manage the MQ backlog
+
+- Problem
+  - RocketMQ and Kafka could accumulate alot of backlog.
+  - Normally it is not a problem, Until
+  - CommitLog expires and gets deleted.
+  - For Rabbit MQ, Clasic Queue and Quorum Queue, if there is huge backlog, then it will affect performance; RabbitMQ stream queue performs similarly to RocketMQ and Kafka.
+- Solution
+  - For consumer group that is taking time to process message, increase number of consumers.
+  - for RabiitMQ in classic Queue, for the consumers of same queue, it gets distributed messages evenly, so you can increase number of consumers to deal with backlog.
+  - For RocketMQ,  one Consumer -> one MessageQueue
+  - one MessageQueue can only be consumed by one Consumer.
+  - so Increasing number of consumers have a ceiling -> number of message queue.
+  - So one workaround is create a new Topic, and create a new group of consumers. The new group will be in charge of relaying old messages; old messages will be relayed to the new ConsumerGroup of the new Topic. Then for the new Topic we can increase the number of consumers. 
+  - For Kafka we can do this work around as well.
+  
+
 
 ## SPI mechanimsm
 
