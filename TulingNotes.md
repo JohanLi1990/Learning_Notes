@@ -93,6 +93,12 @@
       - [Ensure ordered consumption of message](#ensure-ordered-consumption-of-message)
       - [Idempotency of message consumption](#idempotency-of-message-consumption)
       - [Manage the MQ backlog](#manage-the-mq-backlog)
+  - [ElasticSearch](#elasticsearch)
+    - [Elastic Stack Intro](#elastic-stack-intro)
+    - [ElasticSearch Installation and Simple Configuration](#elasticsearch-installation-and-simple-configuration)
+    - [Kibana installations](#kibana-installations)
+    - [installing Tokenizer for Chinese characters](#installing-tokenizer-for-chinese-characters)
+    - [ElasticSearch Basic Data management](#elasticsearch-basic-data-management)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2327,6 +2333,99 @@ Consumer Side:
   - So one workaround is create a new Topic, and create a new group of consumers. The new group will be in charge of relaying old messages; old messages will be relayed to the new ConsumerGroup of the new Topic. Then for the new Topic we can increase the number of consumers. 
   - For Kafka we can do this work around as well.
   
+---
+
+## ElasticSearch
+
+### Elastic Stack Intro
+
+- ElasticSearch: Foundations.
+- LogStash
+- Beats
+- Kibana (UI)
+
+Powerful search engine based on reverse-index.
+
+### ElasticSearch Installation and Simple Configuration
+
+I did it on linux only, key notes
+
+- you cannot use root, you have to do `adduser` , e.g. `elasticsearch`
+- download the installation files and then `chown -R elasticsearch:elasticsearch <ELASTICSERACH_INSTALLATION_DIRECTORY>`
+- set `ES_JAVA_HOME` and `ES_HOME` in `.bashrc`
+- you need to set `discovery.type:single-node` and `xpack.security.enabled:false` in `elasticsearch.yml`; otherwise there will be `bootstrap checks`
+- set jvm options in `config/jvm.options` 
+
+### Kibana installations
+
+for me, i put kibana under the same directory as elastic search.
+
+Key notes:
+
+- connect to `elasticsearch.hosts` -> `http://localhost:9200`
+
+it is launched on http://localhost:5601
+
+
+### installing Tokenizer for Chinese characters
+
+`analysis-icu` -> `bin/elasticsearch-plugin install analysis-icu`
+`https://github.com/medcl/elasticsearch-analysis-ik`
+
+
+### ElasticSearch Basic Data management
+
+- Full Text Search -> find docs given a keyword.
+- relies on inverted index
+- `mapping` is like `schema` in MySQL.
+- `Doc` refers to the JSON in elasticsearch index.
+- Basic Index operations:
+  - Creating index: `PUT /index_name`
+  - Check the index: `GET /index_name`
+  - Update the index 
+    ```yaml
+      PUT /index_name/_mapping
+      {
+        "properties": {
+          "new_field": {
+            "type": "field_type"
+          }
+        }
+      }
+
+    ```
+  - use alias to group indexes together, easy for `/search` operations
+  
+- Basic Doc operations:
+  
+  - PUT is idempotent, POST is not. POST will create new items, PUT will replace existing items.
+  
+  - `/_bulk` operations to do a bunch of actions:
+  
+    ```
+      POST /<index_name>/_bulk
+      { "index" : { "_index" : "<index_name>", "_id" : "<optional_document_id>" } }
+      { "field1" : "value1", "field2" : "value2", ... }
+      { "update" : { "_index" : "<index_name>", "_id" : "<document_id>" } }
+      { "doc" : {"field1" : "new_value1", "field2" : "new_value2", ... }, "_op_type" : "update" }
+      { "delete" : { "_index" : "<index_name>", "_id" : "<document_id>" } }
+      { "index" : { "_index" : "<index_name>", "_id" : "<optional_document_id>" } }
+      { "field1" : "value1", "field2" : "value2", ... }
+    ```
+  - `GET /<index_name>/_doc/<document_id>`
+  - use Query DSL
+  - Syntaxes are pretty generic, no need to focus on them.
+  - How do we ensure thread safety when updating docs? Use `_seq_no` and `_primary_term`
+
+- Best Practices
+  
+  - `Nested object`, one to a few, child docs updated only a few times, 
+  - `Join`
+
+
+
+
+
 
 
 ## SPI mechanimsm
