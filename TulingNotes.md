@@ -99,6 +99,8 @@
     - [Kibana installations](#kibana-installations)
     - [installing Tokenizer for Chinese characters](#installing-tokenizer-for-chinese-characters)
     - [ElasticSearch Basic Data management](#elasticsearch-basic-data-management)
+    - [Advanced Structured Query Elastic](#advanced-structured-query-elastic)
+      - [Advanced DSL](#advanced-dsl)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2422,11 +2424,106 @@ it is launched on http://localhost:5601
   - `Nested object`, one to a few, child docs updated only a few times, 
   - `Join`
 
+### Advanced Structured Query Elastic
 
+[Query DSL](https://www.elastic.co/guide/en/elasticsearch/reference/8.14/query-dsl.html)
 
+#### Advanced DSL
 
+1. `match_all` -> match all documents
 
+  ```yaml
+  GET /<your-index-name>/_search
+  {
+  "query": {
+      "match_all": {}
+  },
+  "size": 10,
+  "sort": [
+      {"_score": {"order": "desc"}}
+  ]
+  }
+  ```
 
+  use `_source` to select sub-fields that you are interested in:
+
+  ```yaml
+    GET /employee/_search
+    {
+      "query": {
+        "match_all": {}
+      },
+      "_source": ["name","address"]
+    }
+  ```
+
+2. Accurate Match using `term` (**important**)
+
+  used mainly for `keyword` type, which is not processed by tokenizer.
+
+  ```yaml
+
+  GET /{index_name}/_search
+  {
+  "query": {
+      "term": {
+        "{field.keyword}": {
+          "value": "your_exact_value"
+        }
+      }
+  }
+  }
+
+  ```
+
+  you can also use term to query a `contains` relationship
+
+  ```yaml
+    GET /{index_name}/_search
+    {
+    "query": {
+        "term": {
+          "{field.keyword}": {
+            "value": "your_exact_value"
+          }
+        }
+    }
+    }
+
+  ```
+
+  set `constant_score` so that we don't calculate score, and use cache to improve performance.
+
+  use multiple values for accurate maching
+
+  ```yaml
+    POST /employee/_search
+    {
+      "query": {
+        "terms": {
+          "remark.keyword": ["java assistant", "java architect"]
+        }
+      }
+    }
+
+  ```
+
+3. Range query `range`
+
+  ```yaml
+  POST /employee/_search
+  {
+    "query": {
+      "range": {
+        "age": {
+          "gte": 25,
+          "lte": 28
+        }
+      }
+    }
+  }
+
+  ```
 
 ## SPI mechanimsm
 
