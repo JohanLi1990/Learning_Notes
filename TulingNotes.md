@@ -101,6 +101,7 @@
     - [ElasticSearch Basic Data management](#elasticsearch-basic-data-management)
     - [Advanced Structured Query Elastic](#advanced-structured-query-elastic)
       - [Advanced DSL](#advanced-dsl)
+      - [Full Index search (with tokenizer)](#full-index-search-with-tokenizer)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2524,6 +2525,62 @@ it is launched on http://localhost:5601
   }
 
   ```
+
+4. `exists` query
+
+  ```yaml
+  GET /employee/_search
+  {
+    "query": {
+      "exists": 
+      {
+        "field": "remark"
+      }
+    }
+  }
+  ```
+
+5. ids search
+6. prefix -> only works on keyword
+7. wildcard: `*` and `?`
+8. `regexp`
+9. `fuzzy`
+10. `termset`
+
+#### Full Index search (with tokenizer)
+
+1. `match` : tokenize -> match scores -> result
+2. `multi match`
+3. `match_phrase`: use `slop` to match fields that are `slop` operations away from the intended keywords (e.g. Bad is 1 slop a way from Sad)
+4. `query_string`
+5. `bool query` (`must`, `should`, `filter`, `must_not`)
+6. `highlight`: help frontend highlight a keyword
+7. `geo_point` for location search
+
+  ```yaml
+  GET /my_index/_search
+  {
+  "query": {
+      "bool": {
+        "must": {
+          "match_all": {}
+        },
+        "filter": {
+          "geo_distance": {
+            "distance": "10km",
+            "distance_type": "arc",
+            "location": {
+              "lat": 39.9,
+              "lon": 116.4
+            }
+          }
+        }
+      }
+  }
+  }
+  ```
+
+8. vector search -> `dense vector` -> k-n-n
 
 ## SPI mechanimsm
 
