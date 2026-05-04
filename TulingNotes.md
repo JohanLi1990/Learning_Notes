@@ -102,6 +102,8 @@
     - [Advanced Structured Query Elastic](#advanced-structured-query-elastic)
       - [Advanced DSL](#advanced-dsl)
       - [Full Index search (with tokenizer)](#full-index-search-with-tokenizer)
+      - [How Does elasticsearch evaluate relevance](#how-does-elasticsearch-evaluate-relevance)
+    - [Elastic Search Aggregations](#elastic-search-aggregations)
   - [SPI mechanimsm](#spi-mechanimsm)
     - [Why we need it?](#why-we-need-it)
     - [Core Idea](#core-idea)
@@ -2581,6 +2583,118 @@ it is launched on http://localhost:5601
   ```
 
 8. vector search -> `dense vector` -> k-n-n
+
+#### How Does elasticsearch evaluate relevance
+
+1. Relevance is calculated by scores:
+
+  - TF-IDF, Term Frequency, Inverse Document Frequency
+  - BM25, Improved TF-IDF
+  - You can use `Explain` api to look at scoring mechanism
+
+2. Customized Scoring that is based on Relevance scoring 
+
+  - Index Boost -> adjust weight of different index.
+  - boosting -> adjust weight of individual doc relevance.
+  - negative_boost -> reduce weight of unintended doc. 
+  - function_score -> add on additional scoring mechansim to the built-in scores. 
+  - rescore_query -> re-rank the search results based on the rescore query. 
+
+3. Optimizations for multi-field search
+
+  - `Best Fields` -> return `max_of(score(field_1), score(field_2), .... score(field_n))`
+  - `Most Fields` -> return `sum_of(score(field_1),...)`
+  - `Cross Fields` -> Like `Most Fields` but with `Operator`, so you can combine fields to see if a query appears across fields.
+
+### Elastic Search Aggregations
+
+Why aggregations, becuase it helps do analysis on our data, such as
+- which phone is most popular
+- what is the ave price, hi, lo of those phones?
+- what is volume of sales?
+
+1. Basic Syntax:
+
+  ```yaml
+  GET <index_name>/_search
+  {
+    "aggs": {
+      "<aggs_name>": { // 聚合名称需要自己定义
+        "<agg_type>": {
+          "field": "<field_name>"
+        }
+      }
+    }
+  }
+  ```
+
+2. Types of Aggregations
+
+- Metric Aggregations   -> Mysql `min()` `max()` `sum()`
+  - Single Value analysis: 
+    - `min, max, avg, sum`
+    - `Cardinality` (distinct count)
+  - Multi Value analysis:
+    - `stats, extended stats`
+    - `percentile, percentile rank`
+    - `top hits`
+- Bucket Aggregations   -> Mysql `group by`
+  - `Terms`, requires field that supports `fielddata`
+    - keyword (by default support filed data)
+    - text (need to manully set field data in `mmapping`), it will do group by based on tokenizer.
+  - Number type
+    - Range / Date Range
+    - Histogram / Date Histogram
+  - Nested Aggregations (bucket in bucket)
+- Pipeline Aggregations -> Aggregations on Aggregations
+  - Sibiling
+    - Max, min, Avg & Sum Bucket
+    - Stats, Extended Stats Busket
+    - Percentiles Bucket
+  - Parent
+    - Derivative
+    - Cumulitive Sum
+    - Moving Average Function
+
+3. Effect range of Aggregations
+
+- By default it works upon the result of a prior query
+- ES supports change of the effect via
+  - Filter
+  - Post Filter
+  - Global
+
+4. Ordering
+
+- (default) count desc
+- custom ordering based on aggregations
+
+
+5. Why sometime Elastic Search Aggregation is not accurate
+
+- Divide and conquer strategy, only gives you local optimum, not global optimum
+
+**How to remediate**
+
+- Only use one node (downside too many data on one shard)
+- Increase Shard Size (recommended : size * 1.5 + 10); use `show_term_doc_count_error` to show worst possible error rate, to help select optimal shard size.
+- Set shard size to 2^32 - 1, tough on CPU, and network IO. 
+- Use clickhouse/sparks for aggregations
+
+6. Aggregations Optimizations
+
+- Index Sorting, improves range query performance
+  - When creating index, we can configure sorting on different fields (it is like setting additional indexes in MySQL)
+  - This is called pre-sorting, it consumes resources.
+
+- Use Node query cache
+  - WE can cache result of filter
+- Use Shard query cache
+  - if set `size: 0`  -> Do not return hits/documents in the response. Only return metadata + aggregations.
+  - becase `size: 0` -> ElasticSearch's `shard request cache` may cache the result, especially for aggregation-style queries.
+- Use Msearch to parallel aggregations
+  - break multiple aggregations into multiple queries
+  - use msearch to do parallel aggregations
 
 ## SPI mechanimsm
 
